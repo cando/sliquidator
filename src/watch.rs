@@ -1,10 +1,9 @@
-use std::time::Instant;
+use std::{collections::HashSet, time::Instant};
 
 use alloy::{
     primitives::{address, Address, U256},
     providers::Provider,
 };
-use chrono::Local;
 use tokio::time::{sleep, Duration};
 use tracing::{debug, error, info};
 
@@ -37,6 +36,7 @@ where
     let silo = ISilo::new(silo_config.silo_address, provider.clone());
 
     let mut watchlist = Vec::new();
+    let mut blacklist: HashSet<Address> = HashSet::new();
     let mut last_refresh: Option<Instant> = None;
 
     loop {
@@ -52,6 +52,7 @@ where
 
             let borrower_inputs: Vec<Borrower> = borrowers
                 .iter()
+                .filter(|b| !blacklist.contains(*b))
                 .map(|&wallet| Borrower {
                     silo: silo_config.silo_address,
                     wallet,
@@ -106,11 +107,17 @@ where
             continue;
         }
 
-        for (borrower, collateral_token, debt_token) in &watchlist {
+        let mut next_watchlist = Vec::new();
+
+        for (borrower, collateral_token, debt_token) in watchlist.drain(..) {
+            if blacklist.contains(&borrower) {
+                continue;
+            }
+
             let multicall = provider
                 .multicall()
-                .add(hook.maxLiquidation(*borrower))
-                .add(silo.isSolvent(*borrower));
+                .add(hook.maxLiquidation(borrower))
+                .add(silo.isSolvent(borrower));
 
             let (liquidation, is_solvent) = match multicall.aggregate().await {
                 Ok(result) => result,
@@ -128,6 +135,7 @@ where
                 || liquidation.collateralToLiquidate.is_zero()
                 || liquidation.maxDebt.is_zero()
             {
+                next_watchlist.push((borrower, collateral_token, debt_token));
                 continue;
             }
 
@@ -136,7 +144,7 @@ where
             let amount_for_quote =
                 liquidation.collateralToLiquidate * U256::from(99) / U256::from(100);
 
-            let adjusted_amount = if *debt_token == USDC_ADDRESS {
+            let adjusted_amount = if debt_token == USDC_ADDRESS {
                 amount_for_quote * U256::from(10u64).pow(U256::from(12))
             } else {
                 amount_for_quote
@@ -158,12 +166,12 @@ where
             let tx = helper
                 .executeLiquidation(
                     silo_config.silo_address,
-                    *debt_token,
+                    debt_token,
                     liquidation.maxDebt,
                     LiquidationData {
                         hook: silo_config.hook_address,
-                        collateralAsset: *collateral_token,
-                        borrower: *borrower,
+                        collateralAsset: collateral_token,
+                        borrower: borrower,
                     },
                     swap_data,
                 )
@@ -176,20 +184,17 @@ where
                         info!("✅ Tx succeeded in block {:?}", receipt.block_number);
                     } else {
                         error!("❌ Tx reverted");
-                        // TODO put in blacklist the borrower?
+                        blacklist.insert(borrower);
                     }
                 }
                 Err(e) => {
                     error!("Failed to confirm tx for borrower {borrower:?}: {e}");
+                    blacklist.insert(borrower);
                 }
             }
         }
 
-        debug!(
-            "{} ⏱️  Monitoring {} borrowers",
-            Local::now().format("[%H:%M:%S]"),
-            watchlist.len()
-        );
+        watchlist = next_watchlist;
 
         sleep(Duration::from_millis(near_insolvency_refresh_time_millis)).await;
     }

@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
 
     let provider = ProviderBuilder::new()
         .wallet(signer)
-        .connect_http("http://localhost:8545".parse()?); // "https://rpc.soniclabs.com" // "http://localhost:8545"
+        .connect_http("https://rpc.soniclabs.com".parse()?); // "https://rpc.soniclabs.com" // "http://localhost:8545"
 
     let silo_configs = load_silo_configs("silos.json")?;
 
