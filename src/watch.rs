@@ -15,6 +15,9 @@ use crate::types::{
 use crate::{config::SiloConfig, odos::get_odos_swap_data};
 
 const USDC_ADDRESS: Address = address!("0x29219dd400f2bf60e5a23d13be72b486d4038894");
+const GET_USERS_HEALTH_BATCH_SIZE: usize = 50;
+
+const ONLY_SAME_TOKEN: bool = false;
 
 pub async fn watch_loop<P>(
     provider: P,
@@ -55,22 +58,44 @@ where
                 })
                 .collect();
 
-            match lens.getUsersHealth(borrower_inputs.clone()).call().await {
-                Ok(healths) => {
-                    for (i, bh) in healths.iter().enumerate() {
-                        let gap = bh.lt.saturating_sub(bh.ltv);
-                        if gap <= near_insolvent_threshold {
-                            info!(
-                                "Borrower {} near insolvency: lt={}, ltv={}, gap={}",
-                                borrower_inputs[i].wallet, bh.lt, bh.ltv, gap
-                            );
-                            watchlist.push((borrower_inputs[i].wallet, bh.lt, bh.ltv, gap));
+            for batch in borrower_inputs.chunks(GET_USERS_HEALTH_BATCH_SIZE) {
+                match lens.getUsersHealth(batch.to_vec()).call().await {
+                    Ok(healths) => {
+                        for (i, bh) in healths.iter().enumerate() {
+                            let wallet = batch[i].wallet;
+                            let gap = bh.lt.saturating_sub(bh.ltv);
+                            if gap <= near_insolvent_threshold {
+                                match config.getConfigsForSolvency(wallet).call().await {
+                                    Ok(config_data) => {
+                                        if !ONLY_SAME_TOKEN
+                                            || config_data.collateralConfig.token
+                                                == config_data.debtConfig.token
+                                        {
+                                            info!(
+                                                "Borrower {} near insolvency: lt={}, ltv={}, gap={}",
+                                                wallet, bh.lt, bh.ltv, gap
+                                            );
+                                            watchlist.push((
+                                                wallet,
+                                                config_data.collateralConfig.token,
+                                                config_data.debtConfig.token,
+                                            ));
+                                        } else {
+                                            debug!("Skipping near insolvency borrower {}: collateral and debt tokens are different", wallet);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to get config for borrower {wallet:?}: {e}");
+                                        continue;
+                                    }
+                                }
+                            }
                         }
                     }
-                }
-                Err(e) => {
-                    error!("Failed to get borrower health: {e}");
-                    continue;
+                    Err(e) => {
+                        error!("Failed to get user health for batch: {e}");
+                        continue;
+                    }
                 }
             }
         }
@@ -81,14 +106,13 @@ where
             continue;
         }
 
-        for (borrower, _, _, _) in &watchlist {
+        for (borrower, collateral_token, debt_token) in &watchlist {
             let multicall = provider
                 .multicall()
                 .add(hook.maxLiquidation(*borrower))
-                .add(config.getConfigsForSolvency(*borrower))
                 .add(silo.isSolvent(*borrower));
 
-            let (liquidation, config_data, is_solvent) = match multicall.aggregate().await {
+            let (liquidation, is_solvent) = match multicall.aggregate().await {
                 Ok(result) => result,
                 Err(e) => {
                     error!("Multicall failed for borrower {borrower:?}: {e}");
@@ -109,18 +133,14 @@ where
 
             info!("🚨 Borrower {borrower:?} is insolvent → preparing liquidation");
 
-            let collateral_token = config_data.collateralConfig.token;
-            let debt_token = config_data.debtConfig.token;
-
             let amount_for_quote =
                 liquidation.collateralToLiquidate * U256::from(99) / U256::from(100);
 
-            let adjusted_amount = if debt_token == USDC_ADDRESS {
+            let adjusted_amount = if *debt_token == USDC_ADDRESS {
                 amount_for_quote * U256::from(10u64).pow(U256::from(12))
             } else {
                 amount_for_quote
             };
-
             let swap_data = if collateral_token != debt_token {
                 get_odos_swap_data(
                     helper.address(),
@@ -138,11 +158,11 @@ where
             let tx = helper
                 .executeLiquidation(
                     silo_config.silo_address,
-                    debt_token,
+                    *debt_token,
                     liquidation.maxDebt,
                     LiquidationData {
                         hook: silo_config.hook_address,
-                        collateralAsset: collateral_token,
+                        collateralAsset: *collateral_token,
                         borrower: *borrower,
                     },
                     swap_data,
@@ -152,10 +172,12 @@ where
 
             match tx.send().await?.get_receipt().await {
                 Ok(receipt) => {
-                    info!(
-                        "✅ Executed liquidation at block {:?}",
-                        receipt.block_number
-                    );
+                    if receipt.status() {
+                        info!("✅ Tx succeeded in block {:?}", receipt.block_number);
+                    } else {
+                        error!("❌ Tx reverted");
+                        // TODO put in blacklist the borrower?
+                    }
                 }
                 Err(e) => {
                     error!("Failed to confirm tx for borrower {borrower:?}: {e}");

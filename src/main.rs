@@ -28,7 +28,7 @@ async fn main() -> Result<()> {
 
     let provider = ProviderBuilder::new()
         .wallet(signer)
-        .connect_http("http://localhost:8545".parse()?); // "https://rpc.soniclabs.com"
+        .connect_http("http://localhost:8545".parse()?); // "https://rpc.soniclabs.com" // "http://localhost:8545"
 
     let silo_configs = load_silo_configs("silos.json")?;
 
@@ -63,7 +63,7 @@ async fn main() -> Result<()> {
                 borrowers,
                 &silo_config,
                 60,
-                U256::from(5_000_000_000_000_000u128), // 0.005% threshold
+                U256::from(1_000_000_000_000u128), // 0.0001% threshold
                 20,
             )
             .await
