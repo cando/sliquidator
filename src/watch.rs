@@ -18,6 +18,7 @@ const GET_USERS_HEALTH_BATCH_SIZE: usize = 50;
 
 const ONLY_SAME_TOKEN: bool = false;
 
+// TODO undestardn 0xdec0000000000000000000000000000000000001
 pub async fn watch_loop<P>(
     provider: P,
     lens: ISiloLensInstance<P>,
@@ -136,6 +137,9 @@ where
             if is_solvent
                 || liquidation.collateralToLiquidate.is_zero()
                 || liquidation.maxDebt.is_zero()
+                || liquidation.maxDebt < U256::from(1500000)
+            // TODO improve for non USDC tokens
+            // Minimum debt to liquidate 1,5 USDC
             {
                 next_watchlist.push((borrower, collateral_token, debt_token));
                 continue;
