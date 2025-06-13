@@ -105,6 +105,8 @@ where
             info!("No borrowers near solvency to monitor.");
             sleep(Duration::from_secs(30)).await;
             continue;
+        } else {
+            sleep(Duration::from_millis(near_insolvency_refresh_time_millis)).await;
         }
 
         let mut next_watchlist = Vec::new();
@@ -195,7 +197,5 @@ where
         }
 
         watchlist = next_watchlist;
-
-        sleep(Duration::from_millis(near_insolvency_refresh_time_millis)).await;
     }
 }
