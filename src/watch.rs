@@ -16,7 +16,7 @@ use crate::{config::SiloConfig, odos::get_odos_swap_data};
 const USDC_ADDRESS: Address = address!("0x29219dd400f2bf60e5a23d13be72b486d4038894");
 const GET_USERS_HEALTH_BATCH_SIZE: usize = 50;
 
-const ONLY_SAME_TOKEN: bool = false;
+const ONLY_SAME_TOKEN: bool = true;
 
 pub async fn watch_loop<P>(
     provider: P,
