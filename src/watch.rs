@@ -16,7 +16,7 @@ use crate::{config::SiloConfig, odos::get_odos_swap_data};
 const USDC_ADDRESS: Address = address!("0x29219dd400f2bf60e5a23d13be72b486d4038894");
 const GET_USERS_HEALTH_BATCH_SIZE: usize = 50;
 
-const ONLY_SAME_TOKEN: bool = true;
+const ONLY_SAME_TOKEN: bool = false;
 
 pub async fn watch_loop<P>(
     provider: P,
@@ -146,21 +146,26 @@ where
             let amount_for_quote =
                 liquidation.collateralToLiquidate * U256::from(99) / U256::from(100);
 
-            let adjusted_amount = if debt_token == USDC_ADDRESS {
+            let adjusted_amount = if collateral_token == USDC_ADDRESS {
                 amount_for_quote * U256::from(10u64).pow(U256::from(12))
             } else {
                 amount_for_quote
             };
             let swap_data = if collateral_token != debt_token {
-                get_odos_swap_data(
+                let result = get_odos_swap_data(
                     helper.address(),
                     &collateral_token,
                     &debt_token,
                     adjusted_amount,
                 )
-                .await?
-                .unwrap_or_default()
-                .into()
+                .await?;
+
+                let swap_bytes = result.unwrap_or_default();
+                if swap_bytes.is_empty() {
+                    continue;
+                }
+
+                swap_bytes.into()
             } else {
                 Vec::new().into()
             };
