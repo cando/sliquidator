@@ -1,0 +1,36 @@
+[package]
+name = "sliquidator"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+
+[dependencies]
+# Alloy for Ethereum types, contracts, and providers
+alloy = { version = "^1.0.9", features = ["full"] }
+
+# Asynchronous runtime
+tokio = { version = "1.45.1", features = ["full"] }
+futures = "0.3.31"
+
+
+# HTTP client for Odos quoting
+reqwest = { version = "0.12.20", features = ["json", "gzip", "rustls-tls"] }
+
+# JSON handling for API payloads
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+
+# Hex decoding for Odos response data
+hex = "0.4.3"
+
+# Timestamps and formatting
+chrono = { version = "0.4.41", features = ["serde"] }
+
+# Error handling
+eyre = "0.6.12"
+
+# Logging
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
+rpassword = "7.4.0"
