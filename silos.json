@@ -4,13 +4,15 @@
         "silo_address": "0x322e1d5384aa4ED66AeCa770B95686271de61dc3",
         "hook_address": "0x6AAFD9Dd424541885fd79C06FDA96929CFD512f9",
         "borrowers_file": "seeds/dUSDC.e-20_token_holders_3.csv",
-        "min_amount_for_liquidation": 1500000
+        "min_amount_for_liquidation": 1500000,
+        "collateral_token_decimals": 6
     },
     {
         "config_address": "0x062A36Bbe0306c2Fd7aecdf25843291fBAB96AD2",
         "silo_address": "0xf55902de87bd80c6a35614b48d7f8b612a083c12",
         "hook_address": "0x6AAFD9Dd424541885fd79C06FDA96929CFD512f9",
         "borrowers_file": "seeds/dWs-20.csv",
-        "min_amount_for_liquidation": 2000000000000000000
+        "min_amount_for_liquidation": 2000000000000000000,
+        "collateral_token_decimals": 18
     }
 ]

@@ -16,7 +16,6 @@ use crate::types::{
 };
 use crate::{config::SiloConfig, odos::get_odos_swap_data};
 
-const USDC_ADDRESS: Address = address!("0x29219dd400f2bf60e5a23d13be72b486d4038894");
 const GET_USERS_HEALTH_BATCH_SIZE: usize = 50;
 
 const ONLY_SAME_TOKEN: bool = false;
@@ -158,12 +157,10 @@ where
             let amount_for_quote =
                 liquidation.collateralToLiquidate * U256::from(99) / U256::from(100);
 
-            let adjusted_amount = if collateral_token == USDC_ADDRESS {
-                amount_for_quote * U256::from(10u64).pow(U256::from(12))
-            } else {
-                amount_for_quote
-            };
             let swap_data = if collateral_token != debt_token {
+                let adjusted_amount =
+                    scale_to_wei(amount_for_quote, silo_config.collateral_token_decimals);
+
                 let result = get_odos_swap_data(
                     helper.address(),
                     &collateral_token,
@@ -211,6 +208,20 @@ where
                     blacklist.write().await.insert(borrower);
                 }
             }
+        }
+    }
+}
+
+fn scale_to_wei(amount: U256, token_decimals: u8) -> U256 {
+    match token_decimals {
+        18 => amount,
+        d if d < 18 => {
+            let scale = 10u128.pow((18 - d) as u32);
+            amount * U256::from(scale)
+        }
+        d => {
+            let scale = 10u128.pow((d - 18) as u32);
+            amount / U256::from(scale)
         }
     }
 }

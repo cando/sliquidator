@@ -9,6 +9,7 @@ pub struct SiloConfig {
     pub hook_address: Address,
     pub borrowers_file: String,
     pub min_amount_for_liquidation: u64,
+    pub collateral_token_decimals: u8,
 }
 
 pub fn load_silo_configs(path: &str) -> eyre::Result<Vec<SiloConfig>> {
