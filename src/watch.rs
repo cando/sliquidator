@@ -1,11 +1,14 @@
-use std::{collections::HashSet, time::Instant};
+use std::{collections::HashSet, sync::Arc};
 
 use alloy::{
     primitives::{address, Address, U256},
     providers::Provider,
 };
-use tokio::time::{sleep, Duration};
-use tracing::{debug, error, info};
+use tokio::{
+    sync::RwLock,
+    time::{sleep, Duration},
+};
+use tracing::{error, info};
 
 use crate::types::{
     Borrower, IHookReceiver, ILiquidationHelper::ILiquidationHelperInstance, ISilo, ISiloConfig,
@@ -29,95 +32,97 @@ pub async fn watch_loop<P>(
     near_insolvency_refresh_time_millis: u64,
 ) -> eyre::Result<()>
 where
-    P: Provider + Clone,
+    P: Provider + Clone + 'static,
 {
     let hook = IHookReceiver::new(silo_config.hook_address, provider.clone());
     let config = ISiloConfig::new(silo_config.config_address, provider.clone());
     let silo = ISilo::new(silo_config.silo_address, provider.clone());
+    let silo_address = silo_config.silo_address.clone();
 
-    let mut watchlist = Vec::new();
-    let mut blacklist: HashSet<Address> = HashSet::new();
-    let mut last_refresh: Option<Instant> = None;
+    let blacklist: Arc<RwLock<HashSet<Address>>> = Arc::new(RwLock::new(HashSet::new()));
+    let blacklist_clone = Arc::clone(&blacklist);
+
+    let watchlist: Arc<RwLock<Vec<(Address, Address, Address)>>> =
+        Arc::new(RwLock::new(Vec::new()));
+    let watchlist_clone = Arc::clone(&watchlist);
 
     // TODO undestardn 0xdec0000000000000000000000000000000000001
-    blacklist.insert(address!("0xdec0000000000000000000000000000000000001"));
+    blacklist
+        .write()
+        .await
+        .insert(address!("0xdec0000000000000000000000000000000000001"));
 
-    loop {
-        let should_refresh = match last_refresh {
-            None => true,
-            Some(instant) => instant.elapsed().as_secs() >= full_refresh_time_secs,
-        };
-
-        if should_refresh {
-            last_refresh = Some(Instant::now());
-            info!("Refreshing borrower list...");
-            watchlist.clear();
+    tokio::spawn(async move {
+        loop {
+            info!("⏳ Refreshing borrower list...");
+            let mut new_watchlist = Vec::new();
+            let blacklist = blacklist_clone.read().await;
 
             let borrower_inputs: Vec<Borrower> = borrowers
                 .iter()
-                .filter(|b| !blacklist.contains(*b))
+                .filter(|b| !blacklist.contains(*b)) // might need Arc<Mutex<>> for this
                 .map(|&wallet| Borrower {
-                    silo: silo_config.silo_address,
+                    silo: silo_address,
                     wallet,
                 })
                 .collect();
 
             for batch in borrower_inputs.chunks(GET_USERS_HEALTH_BATCH_SIZE) {
-                match lens.getUsersHealth(batch.to_vec()).call().await {
-                    Ok(healths) => {
-                        for (i, bh) in healths.iter().enumerate() {
-                            let wallet = batch[i].wallet;
-                            let gap = bh.lt.saturating_sub(bh.ltv);
-                            if gap <= near_insolvent_threshold {
-                                match config.getConfigsForSolvency(wallet).call().await {
-                                    Ok(config_data) => {
-                                        if (!ONLY_SAME_TOKEN
-                                            || config_data.collateralConfig.token
-                                                == config_data.debtConfig.token)
-                                            && !bh.lt.is_zero()
-                                            && !bh.ltv.is_zero()
-                                        {
-                                            info!(
-                                                "Borrower {} near insolvency: lt={}, ltv={}, gap={}",
-                                                wallet, bh.lt, bh.ltv, gap
-                                            );
-                                            watchlist.push((
-                                                wallet,
-                                                config_data.collateralConfig.token,
-                                                config_data.debtConfig.token,
-                                            ));
-                                        } else {
-                                            debug!("Skipping near insolvency borrower {}: collateral and debt tokens are different", wallet);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to get config for borrower {wallet:?}: {e}");
-                                        continue;
-                                    }
+                if let Ok(healths) = lens.getUsersHealth(batch.to_vec()).call().await {
+                    for (i, bh) in healths.iter().enumerate() {
+                        let wallet = batch[i].wallet;
+                        let gap = bh.lt.saturating_sub(bh.ltv);
+                        if gap <= near_insolvent_threshold {
+                            if let Ok(config_data) =
+                                config.getConfigsForSolvency(wallet).call().await
+                            {
+                                if (!ONLY_SAME_TOKEN
+                                    || config_data.collateralConfig.token
+                                        == config_data.debtConfig.token)
+                                    && !bh.lt.is_zero()
+                                    && !bh.ltv.is_zero()
+                                {
+                                    info!(
+                                        "Borrower {wallet:?} is near insolvency: LTV = {}, LT = {}, gap = {}",
+                                        bh.ltv, bh.lt, gap
+                                    );
+                                    new_watchlist.push((
+                                        wallet,
+                                        config_data.collateralConfig.token,
+                                        config_data.debtConfig.token,
+                                    ));
                                 }
                             }
                         }
                     }
-                    Err(e) => {
-                        error!("Failed to get user health for batch: {e}");
-                        continue;
-                    }
                 }
             }
-        }
 
-        if watchlist.is_empty() {
-            info!("No borrowers near solvency to monitor.");
-            sleep(Duration::from_secs(30)).await;
+            {
+                let mut lock = watchlist_clone.write().await;
+                *lock = new_watchlist;
+            }
+
+            sleep(Duration::from_secs(full_refresh_time_secs)).await;
+        }
+    });
+
+    loop {
+        sleep(Duration::from_millis(near_insolvency_refresh_time_millis)).await;
+
+        let mut to_watch = {
+            let lock = watchlist.read().await;
+            lock.clone()
+        };
+
+        if to_watch.is_empty() {
             continue;
-        } else {
-            sleep(Duration::from_millis(near_insolvency_refresh_time_millis)).await;
         }
 
-        let mut next_watchlist = Vec::new();
+        let blacklist_read = blacklist.read().await;
 
-        for (borrower, collateral_token, debt_token) in watchlist.drain(..) {
-            if blacklist.contains(&borrower) {
+        for (borrower, collateral_token, debt_token) in to_watch.drain(..) {
+            if blacklist_read.contains(&borrower) {
                 continue;
             }
 
@@ -138,19 +143,11 @@ where
                 }
             };
 
-            if !is_solvent && liquidation.maxDebt < U256::from(1500000) {
-                info!(
-                    "Borrower {borrower:?} is insolvent with max debt < 1.5M, skipping liquidation"
-                );
+            if is_solvent {
                 continue;
             }
 
-            if is_solvent
-                || liquidation.collateralToLiquidate.is_zero()
-                || liquidation.maxDebt.is_zero()
-            {
-                next_watchlist.push((borrower, collateral_token, debt_token));
-
+            if !is_solvent && liquidation.maxDebt < U256::from(1500000) {
                 continue;
             }
 
@@ -204,16 +201,14 @@ where
                         info!("✅ Tx succeeded in block {:?}", receipt.block_number);
                     } else {
                         error!("❌ Tx reverted");
-                        blacklist.insert(borrower);
+                        blacklist.write().await.insert(borrower);
                     }
                 }
                 Err(e) => {
                     error!("Failed to confirm tx for borrower {borrower:?}: {e}");
-                    blacklist.insert(borrower);
+                    blacklist.write().await.insert(borrower);
                 }
             }
         }
-
-        watchlist = next_watchlist;
     }
 }

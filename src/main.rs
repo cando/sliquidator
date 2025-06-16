@@ -64,7 +64,7 @@ async fn main() -> Result<()> {
                 &silo_config,
                 30,
                 percent_to_wei(0.1),
-                20,
+                0,
             )
             .await
         })
