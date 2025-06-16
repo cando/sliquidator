@@ -62,8 +62,8 @@ async fn main() -> Result<()> {
                 helper,
                 borrowers,
                 &silo_config,
-                60,
-                U256::from(1_000_000_000_000u128), // 0.0001% threshold
+                30,
+                percent_to_wei(0.1),
                 20,
             )
             .await
@@ -86,7 +86,25 @@ pub fn load_borrowers(file_path: &str) -> Vec<Address> {
         .collect()
 }
 
-#[allow(dead_code)]
+/// Converts a percentage to a 18-decimal fixed-point number (wei-style).
+///
+/// # Arguments
+///
+/// * `percentage` - The percentage as a floating-point number (e.g., 0.01 for 0.01%)
+///
+/// # Returns
+///
+/// * `U256` - The 18-decimal fixed-point representation
+fn percent_to_wei(percentage: f64) -> U256 {
+    // Convert to fractional (e.g., 0.01% -> 0.0001)
+    let fractional = percentage / 100.0;
+
+    // Scale up to 18 decimal places
+    let scaled = fractional * 1e18;
+
+    U256::from(scaled as u128)
+}
+
 fn read_private_key_from_console() -> eyre::Result<String> {
     let key = prompt_password("Enter your private key (0x...): ")?;
     if key.trim().is_empty() {

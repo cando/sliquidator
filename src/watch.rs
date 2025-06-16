@@ -18,7 +18,6 @@ const GET_USERS_HEALTH_BATCH_SIZE: usize = 50;
 
 const ONLY_SAME_TOKEN: bool = false;
 
-// TODO undestardn 0xdec0000000000000000000000000000000000001
 pub async fn watch_loop<P>(
     provider: P,
     lens: ISiloLensInstance<P>,
@@ -39,6 +38,9 @@ where
     let mut watchlist = Vec::new();
     let mut blacklist: HashSet<Address> = HashSet::new();
     let mut last_refresh: Option<Instant> = None;
+
+    // TODO undestardn 0xdec0000000000000000000000000000000000001
+    blacklist.insert(address!("0xdec0000000000000000000000000000000000001"));
 
     loop {
         let should_refresh = match last_refresh {
@@ -69,9 +71,11 @@ where
                             if gap <= near_insolvent_threshold {
                                 match config.getConfigsForSolvency(wallet).call().await {
                                     Ok(config_data) => {
-                                        if !ONLY_SAME_TOKEN
+                                        if (!ONLY_SAME_TOKEN
                                             || config_data.collateralConfig.token
-                                                == config_data.debtConfig.token
+                                                == config_data.debtConfig.token)
+                                            && !bh.lt.is_zero()
+                                            && !bh.ltv.is_zero()
                                         {
                                             info!(
                                                 "Borrower {} near insolvency: lt={}, ltv={}, gap={}",
@@ -134,14 +138,19 @@ where
                 }
             };
 
+            if !is_solvent && liquidation.maxDebt < U256::from(1500000) {
+                info!(
+                    "Borrower {borrower:?} is insolvent with max debt < 1.5M, skipping liquidation"
+                );
+                continue;
+            }
+
             if is_solvent
                 || liquidation.collateralToLiquidate.is_zero()
                 || liquidation.maxDebt.is_zero()
-                || liquidation.maxDebt < U256::from(1500000)
-            // TODO improve for non USDC tokens
-            // Minimum debt to liquidate 1,5 USDC
             {
                 next_watchlist.push((borrower, collateral_token, debt_token));
+
                 continue;
             }
 
