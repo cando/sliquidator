@@ -54,7 +54,7 @@ where
 
     tokio::spawn(async move {
         loop {
-            info!("⏳ Refreshing borrower list...");
+            info!("⏳ Refreshing borrower list for silo {silo_address}...");
             let mut new_watchlist = Vec::new();
             let blacklist = blacklist_clone.read().await;
 
@@ -83,7 +83,7 @@ where
                                     && !bh.ltv.is_zero()
                                 {
                                     info!(
-                                        "Borrower {wallet:?} is near insolvency: LTV = {}, LT = {}, gap = {}",
+                                        "Silo {silo_address}: borrower {wallet:?} is near insolvency: LTV = {}, LT = {}, gap = {}",
                                         bh.ltv, bh.lt, gap
                                     );
                                     new_watchlist.push((
@@ -147,7 +147,9 @@ where
                 continue;
             }
 
-            if !is_solvent && liquidation.maxDebt < U256::from(1500000) {
+            if !is_solvent
+                && liquidation.maxDebt < U256::from(silo_config.min_amount_for_liquidation)
+            {
                 continue;
             }
 

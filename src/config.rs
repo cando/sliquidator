@@ -8,6 +8,7 @@ pub struct SiloConfig {
     pub silo_address: Address,
     pub hook_address: Address,
     pub borrowers_file: String,
+    pub min_amount_for_liquidation: u64,
 }
 
 pub fn load_silo_configs(path: &str) -> eyre::Result<Vec<SiloConfig>> {

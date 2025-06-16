@@ -49,10 +49,7 @@ async fn main() -> Result<()> {
         tokio::spawn(async move {
             let borrowers = load_borrowers(&silo_config.borrowers_file);
             if borrowers.is_empty() {
-                tracing::warn!(
-                    "No borrowers loaded for silo at {}",
-                    silo_config.silo_address
-                );
+                tracing::warn!("No borrowers loaded for silo {}", silo_config.silo_address);
                 return Ok(()) as Result<()>;
             }
 
@@ -75,7 +72,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-// Borrower file loader
 pub fn load_borrowers(file_path: &str) -> Vec<Address> {
     let content = fs::read_to_string(file_path)
         .unwrap_or_else(|e| panic!("Failed to read borrower file: {e}"));
@@ -86,15 +82,6 @@ pub fn load_borrowers(file_path: &str) -> Vec<Address> {
         .collect()
 }
 
-/// Converts a percentage to a 18-decimal fixed-point number (wei-style).
-///
-/// # Arguments
-///
-/// * `percentage` - The percentage as a floating-point number (e.g., 0.01 for 0.01%)
-///
-/// # Returns
-///
-/// * `U256` - The 18-decimal fixed-point representation
 fn percent_to_wei(percentage: f64) -> U256 {
     // Convert to fractional (e.g., 0.01% -> 0.0001)
     let fractional = percentage / 100.0;
