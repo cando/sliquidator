@@ -21,7 +21,12 @@ use rpassword::prompt_password;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
+    let file_appender = tracing_appender::rolling::daily(".", "sliquidator.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    tracing_subscriber::fmt()
+        .with_writer(non_blocking)
+        .with_ansi(false)
+        .init();
 
     let key_hex = read_private_key_from_console()?;
     let signer = key_hex.parse::<PrivateKeySigner>()?;

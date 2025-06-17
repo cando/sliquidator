@@ -8,7 +8,7 @@ use tokio::{
     sync::RwLock,
     time::{sleep, Duration},
 };
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::types::{
     Borrower, IHookReceiver, ILiquidationHelper::ILiquidationHelperInstance, ISilo, ISiloConfig,
@@ -92,6 +92,11 @@ where
                                     ));
                                 }
                             }
+                        } else if gap <= near_insolvent_threshold.saturating_mul(U256::from(10)) {
+                            info!(
+                                "Silo {silo_address}: borrower {wallet:?} is solvent but close to insolvency: LTV = {}, LT = {}, gap = {}",
+                                bh.ltv, bh.lt, gap
+                            );
                         }
                     }
                 }
@@ -149,6 +154,11 @@ where
             if !is_solvent
                 && liquidation.maxDebt < U256::from(silo_config.min_amount_for_liquidation)
             {
+                warn!(
+                    "Borrower {borrower:?} is insolvent but max debt ({}) is below the threshold ({}). Skipping.",
+                    liquidation.maxDebt, silo_config.min_amount_for_liquidation
+                );
+                blacklist.write().await.insert(borrower);
                 continue;
             }
 
