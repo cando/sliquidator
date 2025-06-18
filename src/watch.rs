@@ -27,7 +27,6 @@ pub async fn watch_loop<P>(
     borrowers: Vec<Address>,
     silo_config: &SiloConfig,
     full_refresh_time_secs: u64,
-    near_insolvent_threshold: U256,
     near_insolvency_refresh_time_millis: u64,
 ) -> eyre::Result<()>
 where
@@ -66,12 +65,15 @@ where
                 })
                 .collect();
 
+            drop(blacklist);
+
             for batch in borrower_inputs.chunks(GET_USERS_HEALTH_BATCH_SIZE) {
                 if let Ok(healths) = lens.getUsersHealth(batch.to_vec()).call().await {
                     for (i, bh) in healths.iter().enumerate() {
                         let wallet = batch[i].wallet;
                         let gap = bh.lt.saturating_sub(bh.ltv);
-                        if gap <= near_insolvent_threshold {
+                        if gap <= U256::from(1500000) {
+                            // TODO: make this configurable
                             if let Ok(config_data) =
                                 config.getConfigsForSolvency(wallet).call().await
                             {
@@ -92,11 +94,6 @@ where
                                     ));
                                 }
                             }
-                        } else if gap <= near_insolvent_threshold.saturating_mul(U256::from(10)) {
-                            info!(
-                                "Silo {silo_address}: borrower {wallet:?} is solvent but close to insolvency: LTV = {}, LT = {}, gap = {}",
-                                bh.ltv, bh.lt, gap
-                            );
                         }
                     }
                 }
@@ -123,10 +120,12 @@ where
             continue;
         }
 
-        let blacklist_read = blacklist.read().await;
-
         for (borrower, collateral_token, debt_token) in to_watch.drain(..) {
-            if blacklist_read.contains(&borrower) {
+            let skip = {
+                let guard = blacklist.read().await;
+                guard.contains(&borrower)
+            };
+            if skip {
                 continue;
             }
 
@@ -158,7 +157,6 @@ where
                     "Borrower {borrower:?} is insolvent but max debt ({}) is below the threshold ({}). Skipping.",
                     liquidation.maxDebt, silo_config.min_amount_for_liquidation
                 );
-                blacklist.write().await.insert(borrower);
                 continue;
             }
 
@@ -168,8 +166,14 @@ where
                 liquidation.collateralToLiquidate * U256::from(99) / U256::from(100);
 
             let swap_data = if collateral_token != debt_token {
-                let adjusted_amount =
-                    scale_to_wei(amount_for_quote, silo_config.collateral_token_decimals);
+                let adjusted_amount = scale_to_wei(
+                    amount_for_quote,
+                    silo_config.token_decimals[&collateral_token],
+                );
+                info!(
+                    "Fetching swap data for collateral token {} and debt token {} with amount {}",
+                    collateral_token, debt_token, adjusted_amount
+                );
 
                 let result = get_odos_swap_data(
                     helper.address(),

@@ -10,11 +10,7 @@ use crate::types::{ILiquidationHelper, ISiloLens};
 use crate::watch::watch_loop;
 
 use alloy::primitives::Address;
-use alloy::{
-    primitives::{address, U256},
-    providers::ProviderBuilder,
-    signers::local::PrivateKeySigner,
-};
+use alloy::{primitives::address, providers::ProviderBuilder, signers::local::PrivateKeySigner};
 use eyre::Result;
 use futures::future::join_all;
 use rpassword::prompt_password;
@@ -58,17 +54,7 @@ async fn main() -> Result<()> {
                 return Ok(()) as Result<()>;
             }
 
-            watch_loop(
-                provider,
-                lens,
-                helper,
-                borrowers,
-                &silo_config,
-                30,
-                percent_to_wei(0.1),
-                0,
-            )
-            .await
+            watch_loop(provider, lens, helper, borrowers, &silo_config, 30, 0).await
         })
     });
 
@@ -85,16 +71,6 @@ pub fn load_borrowers(file_path: &str) -> Vec<Address> {
         .lines()
         .filter_map(|line| line.trim().parse::<Address>().ok())
         .collect()
-}
-
-fn percent_to_wei(percentage: f64) -> U256 {
-    // Convert to fractional (e.g., 0.01% -> 0.0001)
-    let fractional = percentage / 100.0;
-
-    // Scale up to 18 decimal places
-    let scaled = fractional * 1e18;
-
-    U256::from(scaled as u128)
 }
 
 fn read_private_key_from_console() -> eyre::Result<String> {
