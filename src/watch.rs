@@ -27,6 +27,7 @@ pub async fn watch_loop<P>(
     borrowers: Vec<Address>,
     silo_config: &SiloConfig,
     full_refresh_time_secs: u64,
+    fast_check_solvency_threshold: f64,
     near_insolvency_refresh_time_millis: u64,
 ) -> eyre::Result<()>
 where
@@ -43,6 +44,8 @@ where
     let watchlist: Arc<RwLock<Vec<(Address, Address, Address)>>> =
         Arc::new(RwLock::new(Vec::new()));
     let watchlist_clone = Arc::clone(&watchlist);
+
+    let wei_fast_check_threshold = percent_to_wei(fast_check_solvency_threshold);
 
     // TODO undestardn 0xdec0000000000000000000000000000000000001
     blacklist
@@ -72,8 +75,7 @@ where
                     for (i, bh) in healths.iter().enumerate() {
                         let wallet = batch[i].wallet;
                         let gap = bh.lt.saturating_sub(bh.ltv);
-                        if gap <= U256::from(1500000) {
-                            // TODO: make this configurable
+                        if gap <= wei_fast_check_threshold {
                             if let Ok(config_data) =
                                 config.getConfigsForSolvency(wallet).call().await
                             {
@@ -206,7 +208,7 @@ where
                     swap_data,
                 )
                 .gas(2_500_000u64)
-                .gas_price(55_000_000_000u128); // 55 gwei
+                .gas_price(160_000_000_000u128); // 160 gwei
 
             match tx.send().await?.get_receipt().await {
                 Ok(receipt) => {
@@ -238,4 +240,14 @@ fn scale_to_wei(amount: U256, token_decimals: u8) -> U256 {
             amount / U256::from(scale)
         }
     }
+}
+
+fn percent_to_wei(percentage: f64) -> U256 {
+    // Convert to fractional (e.g., 0.01% -> 0.0001)
+    let fractional = percentage / 100.0;
+
+    // Scale up to 18 decimal places
+    let scaled = fractional * 1e18;
+
+    U256::from(scaled as u128)
 }

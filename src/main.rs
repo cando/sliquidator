@@ -9,14 +9,40 @@ use crate::config::load_silo_configs;
 use crate::types::{ILiquidationHelper, ISiloLens};
 use crate::watch::watch_loop;
 
-use alloy::primitives::Address;
-use alloy::{primitives::address, providers::ProviderBuilder, signers::local::PrivateKeySigner};
+use alloy::primitives::{address, Address};
+use alloy::providers::ProviderBuilder;
+use alloy::signers::local::PrivateKeySigner;
+
+use clap::Parser;
 use eyre::Result;
 use futures::future::join_all;
 use rpassword::prompt_password;
 
+/// Sonic Silo Liquidator
+#[derive(Parser, Debug)]
+#[command(author, version, about)]
+struct CliArgs {
+    /// Path to the IPC socket (e.g., ~/.sonic/sonic.ipc)
+    #[arg(long, conflicts_with = "rpc")]
+    ipc: Option<String>,
+
+    /// HTTP RPC URL (e.g., http://localhost:8545)
+    #[arg(long, conflicts_with = "ipc")]
+    rpc: Option<String>,
+
+    /// Path to silo config JSON file
+    #[arg(long, default_value = "silos.json")]
+    config: String,
+
+    // Fast check solvency threshold in percentage (default: 0.5%)
+    #[arg(long, default_value = "0.5")]
+    fast_check_solvency_threshold: f64,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args = CliArgs::parse();
+
     let file_appender = tracing_appender::rolling::daily(".", "sliquidator.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
     tracing_subscriber::fmt()
@@ -27,13 +53,24 @@ async fn main() -> Result<()> {
     let key_hex = read_private_key_from_console()?;
     let signer = key_hex.parse::<PrivateKeySigner>()?;
 
-    let provider = ProviderBuilder::new()
-        .wallet(signer)
-        .connect_http("https://rpc.soniclabs.com".parse()?); // "https://rpc.soniclabs.com" // "http://localhost:8545"
+    let provider = match (args.ipc, args.rpc) {
+        (Some(ipc_path), _) => {
+            ProviderBuilder::new()
+                .wallet(signer)
+                .connect(&ipc_path)
+                .await?
+        }
+        (_, Some(rpc_url)) => {
+            ProviderBuilder::new()
+                .wallet(signer)
+                .connect(&rpc_url)
+                .await?
+        }
+        (None, None) => eyre::bail!("You must specify either --ipc or --rpc"),
+    };
 
-    let silo_configs = load_silo_configs("silos.json")?;
+    let silo_configs = load_silo_configs(&args.config)?;
 
-    // Shared lens/helper for now — can be made per-silo if needed
     let lens = ISiloLens::new(
         address!("925d5466d4d5b01995e20e1245924ada6415126a"),
         provider.clone(),
@@ -54,7 +91,17 @@ async fn main() -> Result<()> {
                 return Ok(()) as Result<()>;
             }
 
-            watch_loop(provider, lens, helper, borrowers, &silo_config, 30, 0).await
+            watch_loop(
+                provider,
+                lens,
+                helper,
+                borrowers,
+                &silo_config,
+                30,
+                args.fast_check_solvency_threshold,
+                0,
+            )
+            .await
         })
     });
 

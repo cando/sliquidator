@@ -27,7 +27,7 @@ pub async fn get_odos_swap_data(
             "tokenAddress": format!("{:#x}", output_token),
             "proportion": 1,
         }],
-        "slippageLimitPercent": 2.0,
+        "slippageLimitPercent": 5.0,
         "userAddr": format!("{:#x}", receiver),
     });
 
