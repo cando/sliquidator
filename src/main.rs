@@ -1,23 +1,31 @@
 mod config;
+mod logs;
 mod odos;
 mod types;
+mod utils;
 mod watch;
 
-use std::fs;
+use std::collections::HashSet;
+use std::sync::Arc;
 
-use crate::config::load_silo_configs;
-use crate::types::{ILiquidationHelper, ISiloLens};
+use crate::config::{load_silo_configs, SiloConfig};
+use crate::logs::start_borrower_listener;
+use crate::types::ILiquidationHelper::ILiquidationHelperInstance;
+use crate::types::ISiloLens::ISiloLensInstance;
+use crate::types::{ILiquidationHelper, ISiloLens, SharedAddressList};
+use crate::utils::{load_borrowers, read_private_key_from_console, read_private_key_from_file};
 use crate::watch::watch_loop;
 
-use alloy::primitives::{address, Address};
-use alloy::providers::ProviderBuilder;
+use alloy::primitives::address;
+use alloy::providers::{Provider, ProviderBuilder};
 use alloy::signers::local::PrivateKeySigner;
 
 use clap::Parser;
 use eyre::Result;
 use futures::future::join_all;
-use rpassword::prompt_password;
 
+use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
@@ -75,7 +83,7 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    let key_hex = if let Some(file_path) = args.private_key_file {
+    let private_key = if let Some(file_path) = args.private_key_file {
         if !file_path.is_empty() {
             tracing::debug!("Reading private key from file: {}", file_path);
             read_private_key_from_file(&file_path)?
@@ -86,7 +94,7 @@ async fn main() -> Result<()> {
         read_private_key_from_console()?
     };
 
-    let signer = key_hex.parse::<PrivateKeySigner>()?;
+    let signer = private_key.parse::<PrivateKeySigner>()?;
 
     let provider = match (args.ipc, args.rpc) {
         (Some(ipc_path), _) => {
@@ -115,58 +123,63 @@ async fn main() -> Result<()> {
         provider.clone(),
     );
 
-    let handles = silo_configs.into_iter().map(|silo_config| {
-        let provider = provider.clone();
-        let lens = lens.clone();
-        let helper = helper.clone();
-        tokio::spawn(async move {
-            let borrowers = load_borrowers(&silo_config.borrowers_file);
-            if borrowers.is_empty() {
-                tracing::warn!("No borrowers loaded for silo {}", silo_config.silo_address);
-                return Ok(()) as Result<()>;
-            }
-
-            watch_loop(
-                provider,
-                lens,
-                helper,
-                borrowers,
-                &silo_config,
-                30,
+    let handles: Vec<_> = silo_configs
+        .into_iter()
+        .flat_map(|silo| {
+            spawn_tasks_for_silo(
+                silo,
+                provider.clone(),
+                lens.clone(),
+                helper.clone(),
                 args.fast_check_solvency_threshold,
-                0,
             )
-            .await
         })
-    });
+        .collect();
 
     let _ = join_all(handles).await;
 
     Ok(())
 }
 
-pub fn load_borrowers(file_path: &str) -> Vec<Address> {
-    let content = fs::read_to_string(file_path)
-        .unwrap_or_else(|e| panic!("Failed to read borrower file: {e}"));
-
-    content
-        .lines()
-        .filter_map(|line| line.trim().parse::<Address>().ok())
-        .collect()
-}
-
-fn read_private_key_from_console() -> eyre::Result<String> {
-    let key = prompt_password("Enter your private key (0x...): ")?;
-    if key.trim().is_empty() {
-        eyre::bail!("Private key cannot be empty.");
+fn spawn_tasks_for_silo<P>(
+    silo_config: SiloConfig,
+    provider: P,
+    lens: ISiloLensInstance<P>,
+    helper: ILiquidationHelperInstance<P>,
+    threshold: f64,
+) -> Vec<JoinHandle<Result<()>>>
+where
+    P: Provider + Clone + 'static,
+{
+    let initial_borrowers = load_borrowers(&silo_config.borrowers_file);
+    if initial_borrowers.is_empty() {
+        tracing::warn!("No borrowers loaded for silo {}", silo_config.silo_address);
+        return vec![];
     }
-    Ok(key.trim().to_owned())
-}
 
-fn read_private_key_from_file(path: &str) -> eyre::Result<String> {
-    let key = fs::read_to_string(path)?.trim().to_owned();
-    if key.is_empty() {
-        eyre::bail!("Private key is empty");
-    }
-    Ok(key.trim().to_owned())
+    let borrowers: SharedAddressList =
+        Arc::new(RwLock::new(initial_borrowers.into_iter().collect()));
+
+    let borrowers_for_watch = borrowers.clone();
+    let provider_for_watch = provider.clone();
+    let silo_config_for_watch = silo_config.clone();
+
+    vec![
+        tokio::spawn(async move {
+            start_borrower_listener(provider, &silo_config, borrowers, HashSet::new()).await
+        }),
+        tokio::spawn(async move {
+            watch_loop(
+                provider_for_watch,
+                lens,
+                helper,
+                borrowers_for_watch,
+                &silo_config_for_watch,
+                30,
+                threshold,
+                0,
+            )
+            .await
+        }),
+    ]
 }

@@ -10,11 +10,17 @@ use tokio::{
 };
 use tracing::{debug, error, info, warn};
 
-use crate::types::{
-    Borrower, IHookReceiver, ILiquidationHelper::ILiquidationHelperInstance, ISilo, ISiloConfig,
-    ISiloLens::ISiloLensInstance, LiquidationData,
+use crate::{
+    config::SiloConfig, odos::get_odos_swap_data, types::ISiloConfig::ISiloConfigInstance,
+    utils::scale_to_wei,
 };
-use crate::{config::SiloConfig, odos::get_odos_swap_data};
+use crate::{
+    types::{
+        Borrower, IHookReceiver, ILiquidationHelper::ILiquidationHelperInstance, ISilo,
+        ISiloConfig, ISiloLens::ISiloLensInstance, LiquidationData, SharedAddressList,
+    },
+    utils::percent_to_wei,
+};
 
 const GET_USERS_HEALTH_BATCH_SIZE: usize = 50;
 
@@ -24,7 +30,7 @@ pub async fn watch_loop<P>(
     provider: P,
     lens: ISiloLensInstance<P>,
     helper: ILiquidationHelperInstance<P>,
-    borrowers: Vec<Address>,
+    borrowers: SharedAddressList,
     silo_config: &SiloConfig,
     full_refresh_time_secs: u64,
     fast_check_solvency_threshold: f64,
@@ -36,7 +42,6 @@ where
     let hook = IHookReceiver::new(silo_config.hook_address, provider.clone());
     let config = ISiloConfig::new(silo_config.config_address, provider.clone());
     let silo = ISilo::new(silo_config.silo_address, provider.clone());
-    let silo_address = silo_config.silo_address.clone();
 
     let blacklist: Arc<RwLock<HashSet<Address>>> = Arc::new(RwLock::new(HashSet::new()));
     let blacklist_clone = Arc::clone(&blacklist);
@@ -47,68 +52,22 @@ where
 
     let wei_fast_check_threshold = percent_to_wei(fast_check_solvency_threshold);
 
-    // TODO undestardn 0xdec0000000000000000000000000000000000001
+    // TODO understand 0xdec0000000000000000000000000000000000001
     blacklist
         .write()
         .await
         .insert(address!("0xdec0000000000000000000000000000000000001"));
 
-    tokio::spawn(async move {
-        loop {
-            info!("⏳ Refreshing borrower list for silo {silo_address}...");
-            let mut new_watchlist = Vec::new();
-            let blacklist = blacklist_clone.read().await;
-
-            let borrower_inputs: Vec<Borrower> = borrowers
-                .iter()
-                .filter(|b| !blacklist.contains(*b)) // might need Arc<Mutex<>> for this
-                .map(|&wallet| Borrower {
-                    silo: silo_address,
-                    wallet,
-                })
-                .collect();
-
-            drop(blacklist);
-
-            for batch in borrower_inputs.chunks(GET_USERS_HEALTH_BATCH_SIZE) {
-                if let Ok(healths) = lens.getUsersHealth(batch.to_vec()).call().await {
-                    for (i, bh) in healths.iter().enumerate() {
-                        let wallet = batch[i].wallet;
-                        let gap = bh.lt.saturating_sub(bh.ltv);
-                        if gap <= wei_fast_check_threshold {
-                            if let Ok(config_data) =
-                                config.getConfigsForSolvency(wallet).call().await
-                            {
-                                if (!ONLY_SAME_TOKEN
-                                    || config_data.collateralConfig.token
-                                        == config_data.debtConfig.token)
-                                    && !bh.lt.is_zero()
-                                    && !bh.ltv.is_zero()
-                                {
-                                    info!(
-                                        "Silo {silo_address}: borrower {wallet:?} is near insolvency: LTV = {}, LT = {}, gap = {}",
-                                        bh.ltv, bh.lt, gap
-                                    );
-                                    new_watchlist.push((
-                                        wallet,
-                                        config_data.collateralConfig.token,
-                                        config_data.debtConfig.token,
-                                    ));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            {
-                let mut lock = watchlist_clone.write().await;
-                *lock = new_watchlist;
-            }
-
-            sleep(Duration::from_secs(full_refresh_time_secs)).await;
-        }
-    });
+    tokio::spawn(refresh_borrowers_health(
+        silo_config.silo_address,
+        lens,
+        config,
+        borrowers,
+        watchlist_clone,
+        blacklist_clone,
+        full_refresh_time_secs,
+        wei_fast_check_threshold,
+    ));
 
     loop {
         sleep(Duration::from_millis(near_insolvency_refresh_time_millis)).await;
@@ -140,10 +99,6 @@ where
                 Ok(result) => result,
                 Err(e) => {
                     error!("Multicall failed for borrower {borrower:?}: {e}");
-                    sleep(Duration::from_millis(
-                        near_insolvency_refresh_time_millis * 10,
-                    ))
-                    .await;
                     continue;
                 }
             };
@@ -229,26 +184,71 @@ where
     }
 }
 
-fn scale_to_wei(amount: U256, token_decimals: u8) -> U256 {
-    match token_decimals {
-        18 => amount,
-        d if d < 18 => {
-            let scale = 10u128.pow((18 - d) as u32);
-            amount * U256::from(scale)
+async fn refresh_borrowers_health<P>(
+    silo_address: Address,
+    lens: ISiloLensInstance<P>,
+    config: ISiloConfigInstance<P>,
+    borrowers: SharedAddressList,
+    watchlist: Arc<RwLock<Vec<(Address, Address, Address)>>>,
+    blacklist: Arc<RwLock<HashSet<Address>>>,
+    full_refresh_time_secs: u64,
+    wei_fast_check_threshold: U256,
+) -> eyre::Result<()>
+where
+    P: Provider + Clone + 'static,
+{
+    loop {
+        info!("⏳ Refreshing borrower list for silo {silo_address}...");
+        let mut new_watchlist = Vec::new();
+        let blacklist_guard = blacklist.read().await;
+
+        let borrowers_guard = borrowers.read().await;
+        let borrower_inputs: Vec<Borrower> = borrowers_guard
+            .iter()
+            .filter(|b| !blacklist_guard.contains(*b)) // might need Arc<Mutex<>> for this
+            .map(|&wallet| Borrower {
+                silo: silo_address,
+                wallet,
+            })
+            .collect();
+
+        drop(borrowers_guard);
+        drop(blacklist_guard);
+
+        for batch in borrower_inputs.chunks(GET_USERS_HEALTH_BATCH_SIZE) {
+            if let Ok(healths) = lens.getUsersHealth(batch.to_vec()).call().await {
+                for (i, bh) in healths.iter().enumerate() {
+                    let wallet = batch[i].wallet;
+                    let gap = bh.lt.saturating_sub(bh.ltv);
+                    if gap <= wei_fast_check_threshold {
+                        if let Ok(config_data) = config.getConfigsForSolvency(wallet).call().await {
+                            if (!ONLY_SAME_TOKEN
+                                || config_data.collateralConfig.token
+                                    == config_data.debtConfig.token)
+                                && !bh.lt.is_zero()
+                                && !bh.ltv.is_zero()
+                            {
+                                info!(
+                                    "Silo {silo_address}: borrower {wallet:?} is near insolvency: LTV = {}, LT = {}, gap = {}",
+                                    bh.ltv, bh.lt, gap
+                                );
+                                new_watchlist.push((
+                                    wallet,
+                                    config_data.collateralConfig.token,
+                                    config_data.debtConfig.token,
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
         }
-        d => {
-            let scale = 10u128.pow((d - 18) as u32);
-            amount / U256::from(scale)
+
+        {
+            let mut lock = watchlist.write().await;
+            *lock = new_watchlist;
         }
+
+        sleep(Duration::from_secs(full_refresh_time_secs)).await;
     }
-}
-
-fn percent_to_wei(percentage: f64) -> U256 {
-    // Convert to fractional (e.g., 0.01% -> 0.0001)
-    let fractional = percentage / 100.0;
-
-    // Scale up to 18 decimal places
-    let scaled = fractional * 1e18;
-
-    U256::from(scaled as u128)
 }

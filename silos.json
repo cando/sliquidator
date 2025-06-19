@@ -3,6 +3,7 @@
         "config_address": "0x062A36Bbe0306c2Fd7aecdf25843291fBAB96AD2",
         "silo_address": "0x322e1d5384aa4ED66AeCa770B95686271de61dc3",
         "hook_address": "0x6AAFD9Dd424541885fd79C06FDA96929CFD512f9",
+        "debt_token_address": "0xbc4eF1B5453672a98073fbFF216966F5039ad256",
         "borrowers_file": "seeds/dUSDC.csv",
         "min_amount_for_liquidation": 0,
         "token_decimals": {

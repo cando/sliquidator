@@ -9,6 +9,7 @@ pub struct SiloConfig {
     pub config_address: Address,
     pub silo_address: Address,
     pub hook_address: Address,
+    pub debt_token_address: Address,
     pub borrowers_file: String,
     pub min_amount_for_liquidation: u64,
     pub token_decimals: HashMap<Address, u8>,

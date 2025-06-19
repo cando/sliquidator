@@ -3620,6 +3620,7 @@ dependencies = [
  "clap_derive",
  "eyre",
  "futures",
+ "futures-util",
  "hex",
  "reqwest",
  "rpassword",

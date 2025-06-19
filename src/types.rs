@@ -1,4 +1,9 @@
-use alloy::sol;
+use std::{collections::HashSet, sync::Arc};
+
+use alloy::{primitives::Address, sol};
+use tokio::sync::RwLock;
+
+pub type SharedAddressList = Arc<RwLock<HashSet<Address>>>;
 
 sol! {
     #[derive(Debug)]
@@ -39,6 +44,12 @@ sol! {
         address hook;
         address collateralAsset;
         address borrower;
+    }
+
+    #[sol(rpc)]
+    interface IERC20 {
+        function balanceOf(address owner) view returns (uint256);
+        event Transfer(address indexed from, address indexed to, uint256 value);
     }
 
     #[sol(rpc)]
