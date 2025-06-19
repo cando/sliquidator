@@ -9,7 +9,7 @@ use std::collections::HashSet;
 use tracing::error;
 use tracing::info;
 
-pub async fn start_borrower_listener<P>(
+pub async fn borrower_listener<P>(
     provider: P,
     silo_config: &SiloConfig,
     borrowers: SharedAddressList,

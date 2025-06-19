@@ -26,7 +26,7 @@ const GET_USERS_HEALTH_BATCH_SIZE: usize = 50;
 
 const ONLY_SAME_TOKEN: bool = false;
 
-pub async fn watch_loop<P>(
+pub async fn solvency_loop<P>(
     provider: P,
     lens: ISiloLensInstance<P>,
     helper: ILiquidationHelperInstance<P>,

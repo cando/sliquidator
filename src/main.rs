@@ -9,12 +9,12 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::config::{load_silo_configs, SiloConfig};
-use crate::logs::start_borrower_listener;
+use crate::logs::borrower_listener;
 use crate::types::ILiquidationHelper::ILiquidationHelperInstance;
 use crate::types::ISiloLens::ISiloLensInstance;
 use crate::types::{ILiquidationHelper, ISiloLens, SharedAddressList};
 use crate::utils::{load_borrowers, read_private_key_from_console, read_private_key_from_file};
-use crate::watch::watch_loop;
+use crate::watch::solvency_loop;
 
 use alloy::primitives::address;
 use alloy::providers::{Provider, ProviderBuilder};
@@ -166,10 +166,10 @@ where
 
     vec![
         tokio::spawn(async move {
-            start_borrower_listener(provider, &silo_config, borrowers, HashSet::new()).await
+            borrower_listener(provider, &silo_config, borrowers, HashSet::new()).await
         }),
         tokio::spawn(async move {
-            watch_loop(
+            solvency_loop(
                 provider_for_watch,
                 lens,
                 helper,
