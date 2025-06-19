@@ -8,7 +8,7 @@ use tokio::{
     sync::RwLock,
     time::{sleep, Duration},
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::types::{
     Borrower, IHookReceiver, ILiquidationHelper::ILiquidationHelperInstance, ISilo, ISiloConfig,
@@ -149,6 +149,7 @@ where
             };
 
             if is_solvent {
+                debug!("Borrower {borrower:?} is solvent, skipping liquidation check");
                 continue;
             }
 
