@@ -1,12 +1,28 @@
 [
     {
+        "_": "SIL01 (USDC) -  Market 20",
         "config_address": "0x062A36Bbe0306c2Fd7aecdf25843291fBAB96AD2",
         "silo_address": "0x322e1d5384aa4ED66AeCa770B95686271de61dc3",
         "hook_address": "0x6AAFD9Dd424541885fd79C06FDA96929CFD512f9",
         "debt_token_address": "0xbc4eF1B5453672a98073fbFF216966F5039ad256",
-        "borrowers_file": "seeds/dUSDC.csv",
+        "borrowers_file": "dUSDC-20.csv",
         "min_amounts_for_liquidation": {
             "0x039e2fB66102314Ce7b64Ce5Ce3E5183bc94aD38": 1000000000000000000,
+            "0x29219dd400f2Bf60E5a23d13Be72B486D4038894": 500000
+        },
+        "token_decimals": {
+            "0x039e2fB66102314Ce7b64Ce5Ce3E5183bc94aD38": 18,
+            "0x29219dd400f2Bf60E5a23d13Be72B486D4038894": 6
+        }
+    },
+    {
+        "_": "SIL01 (USDC) -  Market 8",
+        "config_address": "0x4915F6d3C9a7B20CedFc5d3854f2802f30311d13",
+        "silo_address": "0x4E216C15697C1392fE59e1014B009505E05810Df",
+        "hook_address": "0xB01e62Ba9BEc9Cfa24b2Ee321392b8Ce726D2A09",
+        "debt_token_address": "0xB1d70D54eC3caAfeCE8812111681d93A3C524875",
+        "borrowers_file": "dUSDC-8.csv",
+        "min_amounts_for_liquidation": {
             "0x29219dd400f2Bf60E5a23d13Be72B486D4038894": 500000
         },
         "token_decimals": {
