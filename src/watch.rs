@@ -160,6 +160,11 @@ where
                 Vec::new().into()
             };
 
+            if silo.isSolvent(borrower).call().await.unwrap_or(true) {
+                warn!("Borrower {borrower:?} is again solvent, we've been too slow...skipping liquidation");
+                continue;
+            }
+
             let tx = helper
                 .executeLiquidation(
                     silo_config.silo_address,
