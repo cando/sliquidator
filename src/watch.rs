@@ -4,6 +4,7 @@ use alloy::{
     primitives::{address, Address, U256},
     providers::Provider,
 };
+use eyre::eyre;
 use tokio::{
     sync::RwLock,
     time::{sleep, Duration},
@@ -139,14 +140,20 @@ where
                     &debt_token,
                     adjusted_amount,
                 )
-                .await?;
+                .await;
 
-                let swap_bytes = result.unwrap_or_default();
-                if swap_bytes.is_empty() {
+                if let Ok(result) = result {
+                    debug!("Odos swap data fetched successfully");
+                    let swap_bytes = result.unwrap_or_default();
+                    if swap_bytes.is_empty() {
+                        continue;
+                    }
+
+                    swap_bytes.into()
+                } else {
+                    warn!("Failed to get Odos swap data: {result:?}");
                     continue;
                 }
-
-                swap_bytes.into()
             } else {
                 Vec::new().into()
             };
@@ -164,19 +171,26 @@ where
                     swap_data,
                 )
                 .gas(2_500_000u64)
-                .gas_price(160_000_000_000u128); // 160 gwei
+                .gas_price(65_000_000_000u128); // 65 gwei
 
-            match tx.send().await?.get_receipt().await {
+            let result = async {
+                let pending_tx = tx.send().await?;
+                let receipt = pending_tx.get_receipt().await?;
+
+                if !receipt.status() {
+                    return Err(eyre!("Transaction reverted"));
+                }
+
+                Ok(receipt)
+            }
+            .await;
+
+            match result {
                 Ok(receipt) => {
-                    if receipt.status() {
-                        info!("✅ Tx succeeded in block {:?}", receipt.block_number);
-                    } else {
-                        error!("❌ Tx reverted");
-                        blacklist.write().await.insert(borrower);
-                    }
+                    info!("✅ Tx succeeded in block {:?}", receipt.block_number);
                 }
                 Err(e) => {
-                    error!("Failed to confirm tx for borrower {borrower:?}: {e}");
+                    error!("❌ Liquidation tx failed for borrower {borrower:?}: {e}");
                     blacklist.write().await.insert(borrower);
                 }
             }

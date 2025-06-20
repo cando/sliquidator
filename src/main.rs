@@ -100,12 +100,14 @@ async fn main() -> Result<()> {
         (Some(ipc_path), _) => {
             ProviderBuilder::new()
                 .wallet(signer)
+                .with_simple_nonce_management()
                 .connect(&ipc_path)
                 .await?
         }
         (_, Some(rpc_url)) => {
             ProviderBuilder::new()
                 .wallet(signer)
+                .with_simple_nonce_management()
                 .connect(&rpc_url)
                 .await?
         }
