@@ -5,7 +5,10 @@
         "hook_address": "0x6AAFD9Dd424541885fd79C06FDA96929CFD512f9",
         "debt_token_address": "0xbc4eF1B5453672a98073fbFF216966F5039ad256",
         "borrowers_file": "seeds/dUSDC.csv",
-        "min_amount_for_liquidation": 0,
+        "min_amounts_for_liquidation": {
+            "0x039e2fB66102314Ce7b64Ce5Ce3E5183bc94aD38": 1000000000000000000,
+            "0x29219dd400f2Bf60E5a23d13Be72B486D4038894": 500000
+        },
         "token_decimals": {
             "0x039e2fB66102314Ce7b64Ce5Ce3E5183bc94aD38": 18,
             "0x29219dd400f2Bf60E5a23d13Be72B486D4038894": 6

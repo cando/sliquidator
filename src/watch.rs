@@ -110,12 +110,14 @@ where
             }
 
             if !is_solvent
-                && liquidation.maxDebt < U256::from(silo_config.min_amount_for_liquidation)
+                && liquidation.maxDebt
+                    < U256::from(silo_config.min_amounts_for_liquidation[&debt_token])
             {
                 warn!(
                     "Borrower {borrower:?} is insolvent but max debt ({}) is below the threshold ({}). Skipping.",
-                    liquidation.maxDebt, silo_config.min_amount_for_liquidation
+                    liquidation.maxDebt, silo_config.min_amounts_for_liquidation[&debt_token]
                 );
+                watchlist.write().await.retain(|(w, _, _)| *w != borrower);
                 continue;
             }
 
