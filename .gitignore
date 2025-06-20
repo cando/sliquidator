@@ -1,2 +1,15 @@
 /target
 *.log*
+
+# Compiler files
+cache/
+out/
+
+# Ignores development broadcast logs
+!/broadcast
+contract/broadcast/*/31337/
+contract/broadcast/**/dry-run/
+
+contract/lib/*
+
+**/broadcast/** 
