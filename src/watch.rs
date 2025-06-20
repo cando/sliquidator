@@ -177,7 +177,7 @@ where
                     },
                     swap_data,
                 )
-                .gas(2_500_000u64)
+                .gas(5_000_000u64)
                 .gas_price(65_000_000_000u128); // 65 gwei
 
             let result = async {

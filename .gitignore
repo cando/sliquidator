@@ -13,3 +13,5 @@ contract/broadcast/**/dry-run/
 contract/lib/*
 
 **/broadcast/** 
+
+*.csv
