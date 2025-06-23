@@ -1,20 +1,20 @@
 mod config;
 mod logs;
 mod odos;
+mod solvency;
 mod types;
 mod utils;
-mod watch;
 
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::config::{load_silo_configs, SiloConfig};
 use crate::logs::borrower_listener;
+use crate::solvency::solvency_loop;
 use crate::types::ILiquidationHelper::ILiquidationHelperInstance;
 use crate::types::ISiloLens::ISiloLensInstance;
 use crate::types::{ILiquidationHelper, ISiloLens, SharedAddressList};
 use crate::utils::{load_borrowers, read_private_key_from_console, read_private_key_from_file};
-use crate::watch::solvency_loop;
 
 use alloy::primitives::address;
 use alloy::providers::{Provider, ProviderBuilder};
