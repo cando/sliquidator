@@ -1,6 +1,5 @@
 mod config;
 mod logs;
-mod odos;
 mod solvency;
 mod types;
 mod utils;
@@ -12,8 +11,9 @@ use crate::config::{load_silo_configs, SiloConfig};
 use crate::logs::borrower_listener;
 use crate::solvency::solvency_loop;
 use crate::types::ILiquidationHelper::ILiquidationHelperInstance;
+use crate::types::IRouter::IRouterInstance;
 use crate::types::ISiloLens::ISiloLensInstance;
-use crate::types::{ILiquidationHelper, ISiloLens, SharedAddressList};
+use crate::types::{ILiquidationHelper, IRouter, ISiloLens, SharedAddressList};
 use crate::utils::{load_borrowers, read_private_key_from_console, read_private_key_from_file};
 
 use alloy::primitives::address;
@@ -21,12 +21,14 @@ use alloy::providers::{Provider, ProviderBuilder};
 use alloy::signers::local::PrivateKeySigner;
 
 use clap::Parser;
+use eyre::eyre;
 use eyre::Result;
 use futures::future::join_all;
 
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tracing::level_filters::LevelFilter;
+use tracing::{error, info};
 use tracing_subscriber::EnvFilter;
 
 /// Sonic Silo Liquidator
@@ -56,6 +58,9 @@ struct CliArgs {
     /// Path to private key file (default: read from console)
     #[arg(long)]
     private_key_file: Option<String>,
+
+    #[arg(long, value_name = "ADDRESS")]
+    withdraw_token: Option<String>,
 }
 
 #[tokio::main]
@@ -121,10 +126,19 @@ async fn main() -> Result<()> {
         provider.clone(),
     );
     let helper = ILiquidationHelper::new(
-        address!("dead000000000000000000000000000000000001"),
+        address!("dead000000000000000000000000000000000003"),
+        provider.clone(),
+    );
+    let shadow_router = IRouter::new(
+        address!("1D368773735ee1E678950B7A97bcA2CafB330CDc"),
         provider.clone(),
     );
 
+    if let Some(withdraw_token) = args.withdraw_token {
+        return handle_withdraw(helper, withdraw_token).await;
+    }
+
+    // Infinite solvency check loop
     let handles: Vec<_> = silo_configs
         .into_iter()
         .flat_map(|silo| {
@@ -132,6 +146,7 @@ async fn main() -> Result<()> {
                 silo,
                 provider.clone(),
                 lens.clone(),
+                shadow_router.clone(),
                 helper.clone(),
                 args.fast_check_solvency_threshold,
             )
@@ -143,10 +158,49 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+async fn handle_withdraw(
+    helper: ILiquidationHelperInstance<impl Provider + Clone>,
+    token: String,
+) -> Result<()> {
+    use alloy::primitives::Address;
+    use tracing::{error, info};
+
+    let token_address = token.trim().parse::<Address>()?;
+    info!("Withdrawing token: {}", token_address);
+
+    let tx = helper.withdraw(token_address);
+    let result = async {
+        let pending_tx = tx.send().await?;
+        let receipt = pending_tx.get_receipt().await?;
+
+        if !receipt.status() {
+            return Err(eyre!("Transaction reverted"));
+        }
+
+        Ok(receipt)
+    }
+    .await;
+
+    match result {
+        Ok(receipt) => {
+            info!(
+                "Withdrawn Tx succeeded in block {:?}, hash: {:?}",
+                receipt.block_number, receipt.transaction_hash
+            );
+        }
+        Err(e) => {
+            error!("Withdraw tx failed: {e}");
+        }
+    }
+
+    Ok(())
+}
+
 fn spawn_tasks_for_silo<P>(
     silo_config: SiloConfig,
     provider: P,
     lens: ISiloLensInstance<P>,
+    router: IRouterInstance<P>,
     helper: ILiquidationHelperInstance<P>,
     threshold: f64,
 ) -> Vec<JoinHandle<Result<()>>>
@@ -174,6 +228,7 @@ where
             solvency_loop(
                 provider_for_watch,
                 lens,
+                router,
                 helper,
                 borrowers_for_watch,
                 &silo_config_for_watch,

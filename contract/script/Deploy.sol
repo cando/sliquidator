@@ -6,7 +6,9 @@ import "../src/Liquidator.sol";
 
 contract Deploy is Script {
     function run() external {
-        address odosProxy = address(0xaC041Df48dF9791B0654f1Dbbf2CC8450C5f2e9D);
+        address shadowRouter = address(
+            0x1D368773735ee1E678950B7A97bcA2CafB330CDc
+        );
         address nativeToken = address(
             0x039e2fB66102314Ce7b64Ce5Ce3E5183bc94aD38
         ); // WS
@@ -18,7 +20,7 @@ contract Deploy is Script {
 
         LiquidationHelper liquidator = new LiquidationHelper(
             nativeToken,
-            odosProxy,
+            shadowRouter,
             liquidator_receiver
         );
 

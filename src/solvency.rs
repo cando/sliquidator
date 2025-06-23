@@ -1,8 +1,13 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::HashSet,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use alloy::{
-    primitives::{address, Address, U256},
+    primitives::{address, Address, Bytes, U256},
     providers::Provider,
+    sol_types::SolCall,
 };
 use eyre::eyre;
 use tokio::{
@@ -12,7 +17,12 @@ use tokio::{
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    config::SiloConfig, odos::get_odos_swap_data, types::ISiloConfig::ISiloConfigInstance,
+    config::SiloConfig,
+    types::{
+        IRouter::{swapExactTokensForTokensCall, IRouterInstance},
+        ISiloConfig::ISiloConfigInstance,
+        Route,
+    },
     utils::scale_to_wei,
 };
 use crate::{
@@ -30,6 +40,7 @@ const ONLY_SAME_TOKEN: bool = false;
 pub async fn solvency_loop<P>(
     provider: P,
     lens: ISiloLensInstance<P>,
+    router: IRouterInstance<P>,
     helper: ILiquidationHelperInstance<P>,
     borrowers: SharedAddressList,
     silo_config: &SiloConfig,
@@ -123,47 +134,49 @@ where
 
             info!("🚨 Borrower {borrower:?} is insolvent → preparing liquidation");
 
-            let amount_for_quote =
-                liquidation.collateralToLiquidate * U256::from(99) / U256::from(100);
-
             let swap_data = if collateral_token != debt_token {
+                let amount_for_swap =
+                    liquidation.collateralToLiquidate * U256::from(99) / U256::from(100);
+
                 let adjusted_amount = scale_to_wei(
-                    amount_for_quote,
+                    amount_for_swap,
                     silo_config.token_decimals[&collateral_token],
                 );
-                info!(
-                    "Fetching swap data for collateral token {} and debt token {} with amount {}",
-                    collateral_token, debt_token, adjusted_amount
-                );
 
-                let result = get_odos_swap_data(
-                    helper.address(),
-                    &collateral_token,
-                    &debt_token,
-                    adjusted_amount,
-                )
-                .await;
-
-                if let Ok(result) = result {
-                    debug!("Odos swap data fetched successfully");
-                    let swap_bytes = result.unwrap_or_default();
-                    if swap_bytes.is_empty() {
+                let (amount_out, stable) = match router
+                    .getAmountOut(adjusted_amount, collateral_token, debt_token)
+                    .call()
+                    .await
+                {
+                    Ok(res) => (res.amount, res.stable),
+                    Err(e) => {
+                        error!("Router getAmountOut failed for {collateral_token:?} to {debt_token:?} with amount {adjusted_amount:?}: {e}");
                         continue;
                     }
+                };
 
-                    swap_bytes.into()
-                } else {
-                    warn!("Failed to get Odos swap data: {result:?}");
-                    continue;
-                }
+                let call = swapExactTokensForTokensCall {
+                    amountIn: adjusted_amount,
+                    amountOutMin: amount_out * U256::from(95) / U256::from(100),
+                    routes: vec![Route {
+                        from: collateral_token,
+                        to: debt_token,
+                        stable: stable,
+                    }],
+                    to: *helper.address(),
+                    deadline: U256::from(
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .expect("Time went backwards")
+                            .as_secs()
+                            + 300,
+                    ),
+                };
+
+                Bytes::from(call.abi_encode())
             } else {
                 Vec::new().into()
             };
-
-            if silo.isSolvent(borrower).call().await.unwrap_or(true) {
-                warn!("Borrower {borrower:?} is again solvent, we've been too slow...skipping liquidation");
-                continue;
-            }
 
             let tx = helper
                 .executeLiquidation(

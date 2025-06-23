@@ -74,6 +74,8 @@ sol! {
 
     #[sol(rpc)]
     interface ILiquidationHelper {
+        function withdraw(address token);
+
         function executeLiquidation(
             address silo,
             address debtAsset,
@@ -93,4 +95,28 @@ sol! {
             ConfigData debtConfig
         );
     }
+
+    struct Route {
+        address from;
+        address to;
+        bool stable;
+    }
+
+    #[sol(rpc)]
+    interface IRouter {
+        function swapExactTokensForTokens(
+            uint256 amountIn,
+            uint256 amountOutMin,
+            Route[] routes,
+            address to,
+            uint256 deadline
+        ) external returns (uint256[] amounts);
+
+        function getAmountOut(
+            uint256 amountIn,
+            address tokenIn,
+            address tokenOut
+        ) external view returns (uint256 amount, bool stable);
+    }
+
 }
