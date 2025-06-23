@@ -126,7 +126,7 @@ async fn main() -> Result<()> {
         provider.clone(),
     );
     let helper = ILiquidationHelper::new(
-        address!("dead000000000000000000000000000000000003"),
+        address!("dead000000000000000000000000000000000006"),
         provider.clone(),
     );
     let shadow_router = IRouter::new(
