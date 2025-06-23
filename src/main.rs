@@ -179,7 +179,7 @@ where
                 &silo_config_for_watch,
                 30,
                 threshold,
-                0,
+                10,
             )
             .await
         }),
