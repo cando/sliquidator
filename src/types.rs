@@ -96,27 +96,20 @@ sol! {
         );
     }
 
-    struct Route {
-        address from;
-        address to;
-        bool stable;
-    }
-
     #[sol(rpc)]
-    interface IRouter {
-        function swapExactTokensForTokens(
-            uint256 amountIn,
-            uint256 amountOutMin,
-            Route[] routes,
-            address to,
-            uint256 deadline
-        ) external returns (uint256[] amounts);
+    interface IV3SwapRouter {
+        struct ExactInputSingleParams {
+            address tokenIn;
+            address tokenOut;
+            int24 tickSpacing;
+            address recipient;
+            uint256 deadline;
+            uint256 amountIn;
+            uint256 amountOutMinimum;
+            uint160 sqrtPriceLimitX96;
+        }
 
-        function getAmountOut(
-            uint256 amountIn,
-            address tokenIn,
-            address tokenOut
-        ) external view returns (uint256 amount, bool stable);
+        function exactInputSingle(ExactInputSingleParams params) payable external returns (uint256 amountOut);
     }
 
 }

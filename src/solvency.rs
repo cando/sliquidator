@@ -5,7 +5,7 @@ use std::{
 };
 
 use alloy::{
-    primitives::{address, Address, Bytes, U256},
+    primitives::{address, aliases::I24, Address, Bytes, U160, U256},
     providers::Provider,
     sol_types::SolCall,
 };
@@ -19,9 +19,8 @@ use tracing::{debug, error, info, warn};
 use crate::{
     config::SiloConfig,
     types::{
-        IRouter::{swapExactTokensForTokensCall, IRouterInstance},
         ISiloConfig::ISiloConfigInstance,
-        Route,
+        IV3SwapRouter::{exactInputSingleCall, ExactInputSingleParams},
     },
     utils::scale_to_wei,
 };
@@ -40,7 +39,6 @@ const ONLY_SAME_TOKEN: bool = false;
 pub async fn solvency_loop<P>(
     provider: P,
     lens: ISiloLensInstance<P>,
-    router: IRouterInstance<P>,
     helper: ILiquidationHelperInstance<P>,
     borrowers: SharedAddressList,
     silo_config: &SiloConfig,
@@ -132,45 +130,38 @@ where
                 continue;
             }
 
-            info!("🚨 Borrower {borrower:?} is insolvent → preparing liquidation");
+            info!(
+                "🚨 Borrower {borrower:?} is insolvent → preparing liquidation. 
+                Collateral To Liquidate: {:?}, Max Debt: {:?}",
+                liquidation.collateralToLiquidate, liquidation.maxDebt
+            );
 
             let swap_data = if collateral_token != debt_token {
                 let amount_for_swap =
-                    liquidation.collateralToLiquidate * U256::from(99) / U256::from(100);
+                    liquidation.collateralToLiquidate * U256::from(995) / U256::from(1000);
 
                 let adjusted_amount = scale_to_wei(
                     amount_for_swap,
                     silo_config.token_decimals[&collateral_token],
                 );
 
-                let (amount_out, stable) = match router
-                    .getAmountOut(adjusted_amount, collateral_token, debt_token)
-                    .call()
-                    .await
-                {
-                    Ok(res) => (res.amount, res.stable),
-                    Err(e) => {
-                        error!("Router getAmountOut failed for {collateral_token:?} to {debt_token:?} with amount {adjusted_amount:?}: {e}");
-                        continue;
-                    }
-                };
-
-                let call = swapExactTokensForTokensCall {
-                    amountIn: adjusted_amount,
-                    amountOutMin: amount_out * U256::from(95) / U256::from(100),
-                    routes: vec![Route {
-                        from: collateral_token,
-                        to: debt_token,
-                        stable: stable,
-                    }],
-                    to: *helper.address(),
-                    deadline: U256::from(
-                        SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .expect("Time went backwards")
-                            .as_secs()
-                            + 300,
-                    ),
+                let call = exactInputSingleCall {
+                    params: ExactInputSingleParams {
+                        tokenIn: collateral_token,
+                        tokenOut: debt_token,
+                        tickSpacing: I24::unchecked_from(50),
+                        recipient: *helper.address(),
+                        deadline: U256::from(
+                            SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .expect("Time went backwards")
+                                .as_secs()
+                                + 300,
+                        ),
+                        amountIn: adjusted_amount,
+                        amountOutMinimum: U256::ZERO,
+                        sqrtPriceLimitX96: U160::ZERO,
+                    },
                 };
 
                 Bytes::from(call.abi_encode())

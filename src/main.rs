@@ -11,9 +11,8 @@ use crate::config::{load_silo_configs, SiloConfig};
 use crate::logs::borrower_listener;
 use crate::solvency::solvency_loop;
 use crate::types::ILiquidationHelper::ILiquidationHelperInstance;
-use crate::types::IRouter::IRouterInstance;
 use crate::types::ISiloLens::ISiloLensInstance;
-use crate::types::{ILiquidationHelper, IRouter, ISiloLens, SharedAddressList};
+use crate::types::{ILiquidationHelper, ISiloLens, SharedAddressList};
 use crate::utils::{load_borrowers, read_private_key_from_console, read_private_key_from_file};
 
 use alloy::primitives::address;
@@ -129,10 +128,6 @@ async fn main() -> Result<()> {
         address!("dead000000000000000000000000000000000006"),
         provider.clone(),
     );
-    let shadow_router = IRouter::new(
-        address!("1D368773735ee1E678950B7A97bcA2CafB330CDc"),
-        provider.clone(),
-    );
 
     if let Some(withdraw_token) = args.withdraw_token {
         return handle_withdraw(helper, withdraw_token).await;
@@ -146,7 +141,6 @@ async fn main() -> Result<()> {
                 silo,
                 provider.clone(),
                 lens.clone(),
-                shadow_router.clone(),
                 helper.clone(),
                 args.fast_check_solvency_threshold,
             )
@@ -200,7 +194,6 @@ fn spawn_tasks_for_silo<P>(
     silo_config: SiloConfig,
     provider: P,
     lens: ISiloLensInstance<P>,
-    router: IRouterInstance<P>,
     helper: ILiquidationHelperInstance<P>,
     threshold: f64,
 ) -> Vec<JoinHandle<Result<()>>>
@@ -228,7 +221,6 @@ where
             solvency_loop(
                 provider_for_watch,
                 lens,
-                router,
                 helper,
                 borrowers_for_watch,
                 &silo_config_for_watch,

@@ -7,7 +7,7 @@ import "../src/Liquidator.sol";
 contract Deploy is Script {
     function run() external {
         address shadowRouter = address(
-            0x1D368773735ee1E678950B7A97bcA2CafB330CDc
+            0x5543c6176FEb9B4b179078205d7C29EEa2e2d695
         );
         address nativeToken = address(
             0x039e2fB66102314Ce7b64Ce5Ce3E5183bc94aD38
