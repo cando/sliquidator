@@ -125,7 +125,7 @@ async fn main() -> Result<()> {
         provider.clone(),
     );
     let helper = ILiquidationHelper::new(
-        address!("dead000000000000000000000000000000000006"),
+        address!("dead000000000000000000000000000000000002"),
         provider.clone(),
     );
 
