@@ -13,14 +13,21 @@ alloy = { version = "^1.0.9", features = ["full"] }
 tokio = { version = "1.45.1", features = ["full"] }
 futures = "0.3.31"
 futures-util = "0.3.31"
+tokio-util = "0.7.15"
 
 
 # HTTP client for Odos quoting
-reqwest = { version = "0.12.20", features = ["json", "gzip", "rustls-tls"] }
+reqwest = { version = "0.12.20", features = [
+    "json",
+    "gzip",
+    "rustls-tls",
+    "stream",
+] }
 
 # JSON handling for API payloads
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
+serde_with = "3.13.0"
 
 # Hex decoding for Odos response data
 hex = "0.4.3"

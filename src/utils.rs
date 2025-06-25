@@ -38,20 +38,6 @@ pub fn read_private_key_from_file(path: &str) -> eyre::Result<String> {
     Ok(key.trim().to_owned())
 }
 
-pub fn scale_to_wei(amount: U256, token_decimals: u8) -> U256 {
-    match token_decimals {
-        18 => amount,
-        d if d < 18 => {
-            let scale = 10u128.pow((18 - d) as u32);
-            amount * U256::from(scale)
-        }
-        d => {
-            let scale = 10u128.pow((d - 18) as u32);
-            amount / U256::from(scale)
-        }
-    }
-}
-
 pub fn percent_to_wei(percentage: f64) -> U256 {
     // Convert to fractional (e.g., 0.01% -> 0.0001)
     let fractional = percentage / 100.0;

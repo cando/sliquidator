@@ -12,7 +12,7 @@ pub struct SiloConfig {
     pub debt_token_address: Address,
     pub borrowers_file: String,
     pub min_amounts_for_liquidation: HashMap<Address, u64>,
-    pub token_decimals: HashMap<Address, u8>,
+    pub simulate_solvency_price_id: Option<String>,
 }
 
 pub fn load_silo_configs(path: &str) -> eyre::Result<Vec<SiloConfig>> {

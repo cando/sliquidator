@@ -1,5 +1,7 @@
 mod config;
+mod hermes;
 mod logs;
+mod pyth_simulator;
 mod solvency;
 mod types;
 mod utils;
@@ -9,7 +11,7 @@ use std::sync::Arc;
 
 use crate::config::{load_silo_configs, SiloConfig};
 use crate::logs::borrower_listener;
-use crate::solvency::solvency_loop;
+use crate::solvency::run_solvency_monitor;
 use crate::types::ILiquidationHelper::ILiquidationHelperInstance;
 use crate::types::ISiloLens::ISiloLensInstance;
 use crate::types::{ILiquidationHelper, ISiloLens, SharedAddressList};
@@ -133,21 +135,19 @@ async fn main() -> Result<()> {
         return handle_withdraw(helper, withdraw_token).await;
     }
 
-    // Infinite solvency check loop
-    let handles: Vec<_> = silo_configs
-        .into_iter()
-        .flat_map(|silo| {
-            spawn_tasks_for_silo(
-                silo,
-                provider.clone(),
-                lens.clone(),
-                helper.clone(),
-                args.fast_check_solvency_threshold,
-            )
-        })
-        .collect();
+    let mut handles = vec![];
+    for silo in &silo_configs {
+        info!("Starting solvency monitor for silo: {}", silo.silo_address);
+        handles.push(spawn_tasks_for_silo(
+            *silo,
+            provider.clone(),
+            lens.clone(),
+            helper.clone(),
+            args.fast_check_solvency_threshold,
+        )?);
+    }
 
-    let _ = join_all(handles).await;
+    join_all(handles).await;
 
     Ok(())
 }
@@ -196,39 +196,20 @@ fn spawn_tasks_for_silo<P>(
     lens: ISiloLensInstance<P>,
     helper: ILiquidationHelperInstance<P>,
     threshold: f64,
-) -> Vec<JoinHandle<Result<()>>>
+) -> Result<Vec<JoinHandle<()>>>
 where
     P: Provider + Clone + 'static,
 {
-    let initial_borrowers = load_borrowers(&silo_config.borrowers_file);
-    if initial_borrowers.is_empty() {
-        tracing::warn!("No borrowers loaded for silo {}", silo_config.silo_address);
-        return vec![];
-    }
-
-    let borrowers: SharedAddressList =
-        Arc::new(RwLock::new(initial_borrowers.into_iter().collect()));
-
-    let borrowers_for_watch = borrowers.clone();
     let provider_for_watch = provider.clone();
     let silo_config_for_watch = silo_config.clone();
 
-    vec![
-        tokio::spawn(async move {
-            borrower_listener(provider, &silo_config, borrowers, HashSet::new()).await
-        }),
-        tokio::spawn(async move {
-            solvency_loop(
-                provider_for_watch,
-                lens,
-                helper,
-                borrowers_for_watch,
-                &silo_config_for_watch,
-                30,
-                threshold,
-                10,
-            )
-            .await
-        }),
-    ]
+    run_solvency_monitor(
+        provider_for_watch,
+        lens,
+        helper,
+        silo_config_for_watch,
+        30,
+        10,
+        threshold,
+    )
 }
