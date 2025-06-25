@@ -201,7 +201,7 @@ async fn refresh_watchlist_task<P: Provider + Clone + 'static>(
     }
 }
 
-pub async fn borrower_listener_task<P>(ctx: LiquidationContext<P>)
+async fn borrower_listener_task<P>(ctx: LiquidationContext<P>)
 where
     P: Provider + Clone + 'static,
 {

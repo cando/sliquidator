@@ -1,21 +1,15 @@
 mod config;
 mod hermes;
-mod logs;
 mod pyth_simulator;
 mod solvency;
 mod types;
 mod utils;
-
-use std::collections::HashSet;
-use std::sync::Arc;
-
 use crate::config::{load_silo_configs, SiloConfig};
-use crate::logs::borrower_listener;
 use crate::solvency::run_solvency_monitor;
 use crate::types::ILiquidationHelper::ILiquidationHelperInstance;
 use crate::types::ISiloLens::ISiloLensInstance;
-use crate::types::{ILiquidationHelper, ISiloLens, SharedAddressList};
-use crate::utils::{load_borrowers, read_private_key_from_console, read_private_key_from_file};
+use crate::types::{ILiquidationHelper, ISiloLens};
+use crate::utils::{read_private_key_from_console, read_private_key_from_file};
 
 use alloy::primitives::address;
 use alloy::providers::{Provider, ProviderBuilder};
@@ -26,7 +20,6 @@ use eyre::eyre;
 use eyre::Result;
 use futures::future::join_all;
 
-use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tracing::level_filters::LevelFilter;
 use tracing::{error, info};
@@ -139,7 +132,7 @@ async fn main() -> Result<()> {
     for silo in &silo_configs {
         info!("Starting solvency monitor for silo: {}", silo.silo_address);
         handles.push(spawn_tasks_for_silo(
-            *silo,
+            silo.clone(),
             provider.clone(),
             lens.clone(),
             helper.clone(),
@@ -147,7 +140,7 @@ async fn main() -> Result<()> {
         )?);
     }
 
-    join_all(handles).await;
+    join_all(handles.into_iter().flatten().collect::<Vec<_>>()).await;
 
     Ok(())
 }
