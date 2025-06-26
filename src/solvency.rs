@@ -62,7 +62,6 @@ struct LiquidationContext<P: Provider + Clone + 'static> {
 }
 
 const GET_USERS_HEALTH_BATCH_SIZE: usize = 50;
-const ONLY_SAME_TOKEN: bool = false;
 
 pub fn run_solvency_monitor<P>(
     provider: P,
@@ -173,12 +172,7 @@ async fn refresh_watchlist_task<P: Provider + Clone + 'static>(
                         if let Ok(config_data) =
                             ctx.silo_config.getConfigsForSolvency(wallet).call().await
                         {
-                            if (!ONLY_SAME_TOKEN
-                                || config_data.collateralConfig.token
-                                    == config_data.debtConfig.token)
-                                && !bh.lt.is_zero()
-                                && !bh.ltv.is_zero()
-                            {
+                            if !bh.lt.is_zero() && !bh.ltv.is_zero() {
                                 info!(wallet = %wallet, "Borrower near insolvency: LTV = {}, LT = {}, gap = {}", bh.ltv, bh.lt, gap);
                                 new_watchlist.push((
                                     wallet,
