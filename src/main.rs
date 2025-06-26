@@ -137,7 +137,7 @@ async fn main() -> Result<()> {
             lens.clone(),
             helper.clone(),
             args.fast_check_solvency_threshold,
-        )?);
+        ));
     }
 
     join_all(handles.into_iter().flatten().collect::<Vec<_>>()).await;
@@ -189,7 +189,7 @@ fn spawn_tasks_for_silo<P>(
     lens: ISiloLensInstance<P>,
     helper: ILiquidationHelperInstance<P>,
     threshold: f64,
-) -> Result<Vec<JoinHandle<()>>>
+) -> Vec<JoinHandle<()>>
 where
     P: Provider + Clone + 'static,
 {

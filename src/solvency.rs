@@ -71,7 +71,7 @@ pub fn run_solvency_monitor<P>(
     full_refresh_secs: u64,
     near_insolvency_check_millis: u64,
     fast_check_solvency_threshold: f64,
-) -> eyre::Result<Vec<JoinHandle<()>>>
+) -> Vec<JoinHandle<()>>
 where
     P: Provider + Clone + 'static,
 {
@@ -88,7 +88,8 @@ where
 
     let initial_borrowers = load_borrowers(&config.borrowers_file);
     if initial_borrowers.is_empty() {
-        eyre::bail!("No borrowers loaded for silo {}", config.silo_address);
+        error!("No borrowers loaded for silo {}", config.silo_address);
+        return vec![];
     }
 
     let borrowers: SharedAddressList =
@@ -139,7 +140,7 @@ where
         _ => (),
     }
 
-    Ok(handles)
+    handles
 }
 
 async fn refresh_watchlist_task<P: Provider + Clone + 'static>(
@@ -314,6 +315,7 @@ async fn solvency_monitor_task<P: Provider + Clone + 'static>(
                             }
                         } else {
                             warn!(?borrower, "No Pyth price, skipping simulation.");
+                            sleep(Duration::from_secs(5)).await;
                             continue;
                         }
                     }
