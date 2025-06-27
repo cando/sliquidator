@@ -187,6 +187,7 @@ async fn refresh_watchlist_task<P: Provider + Clone + 'static>(
                                     == config_data.debtConfig.token
                                     && gap.saturating_mul(U256::from(SAME_TOKEN_MULTIPLIER))
                                         > ctx.fast_check_threshold
+                                // this means we are checking for 1/SAME_TOKEN_MULTIPLIER of the threshold (e.g. 0.05% for 0.5% threshold)
                                 {
                                     // Solvency check for same token borrow/lend is way slower, so
                                     // we check if the gap is small enough to warrant it
@@ -410,23 +411,6 @@ async fn same_token_solvency(
         }
     };
 
-    if !is_solvent
-        && liquidation
-            .maxDebt
-            .saturating_mul(U256::from(SAME_TOKEN_MULTIPLIER))
-            < U256::from(ctx.config.min_amounts_for_liquidation[&debt_token])
-    {
-        warn!(
-            ?borrower,
-            "Insolvent but below min debt threshold. Skipping."
-        );
-        ctx.watchlist
-            .write()
-            .await
-            .retain(|(w, _, _)| *w != borrower);
-        return;
-    }
-
     if is_solvent {
         // Get the current block number
         let block_number = match ctx.provider.get_block_number().await {
@@ -478,12 +462,8 @@ async fn same_token_solvency(
         let delta_in_n_blocks =
             delta_per_last_n_blocks.saturating_mul(U256::from(n_blocks_to_check));
         if delta_in_n_blocks + current_ltv > ctx.liquidation_threshold {
-            info!(%borrower,
-                "🚨 Borrower is solvent, but LTV delta is high enough to start trying to liquidate:
-            current LTV = {}, past LTV = {}, avg delta = {}. Simulated LTV: {}",
-                current_ltv,
-                past_ltv,
-                delta_per_last_n_blocks,
+            info!(%borrower, %ctx.config.silo_address, %current_ltv, %past_ltv, %delta_per_last_n_blocks, %delta_in_n_blocks,
+                "🚨 Borrower is solvent, but LTV delta is high enough to start trying to liquidate. Simulated LTV: {}",
                 delta_in_n_blocks + current_ltv
             );
 
@@ -508,14 +488,21 @@ async fn same_token_solvency(
             return;
         }
 
-        // Log if the borrower is still solvent
-        info!(%borrower,
-        "Borrower is solvent, LTV is too low to liquidate: current LTV = {}, past LTV = {}, avg delta = {}.  Simulated LTV: {}",
-        current_ltv,
-        past_ltv,
-        delta_per_last_n_blocks,
-        delta_in_n_blocks + current_ltv);
+        info!(%borrower, %ctx.config.silo_address, %current_ltv, %past_ltv, %delta_per_last_n_blocks, %delta_in_n_blocks,
+        "Borrower is solvent, LTV is too low to liquidate. Simulated LTV: {}", delta_in_n_blocks + current_ltv);
     } else {
+        if liquidation.maxDebt < U256::from(ctx.config.min_amounts_for_liquidation[&debt_token]) {
+            warn!(
+                ?borrower,
+                "Same token borrower insolvent but below min debt threshold. Skipping."
+            );
+            ctx.watchlist
+                .write()
+                .await
+                .retain(|(w, _, _)| *w != borrower);
+            return;
+        }
+
         info!(
             ?borrower,
             "🚨 Same token Borrower is (already) insolvent → preparing liquidation"
