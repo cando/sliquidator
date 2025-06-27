@@ -380,14 +380,13 @@ async fn standard_solvency(
         Vec::new().into()
     };
 
-    liquidate(
+    liquidate_and_wait_for_receipt(
         ctx.clone(),
         borrower,
         debt_token,
         collateral_token,
         swap_data,
         liquidation.maxDebt,
-        true,
     )
     .await;
 }
@@ -469,19 +468,16 @@ async fn same_token_solvency(
 
             let liquidation_tentatives = 0;
             while liquidation_tentatives < 25 {
-                if liquidate(
+                liquidate_no_wait(
                     ctx.clone(),
                     borrower,
                     debt_token,
                     debt_token,
                     Bytes::new(),
                     liquidation.maxDebt,
-                    false,
                 )
-                .await
-                {
-                    return;
-                }
+                .await;
+
                 sleep(Duration::from_millis(200)).await;
                 // current block time in sonic is around 500ms.
                 // so trying 25 times with 200ms sleep it measn we cover ~ 5 seconds, which is more than
@@ -513,14 +509,13 @@ async fn same_token_solvency(
 
         let swap_data = Bytes::new(); // No swap needed for same token liquidation
 
-        liquidate(
+        liquidate_and_wait_for_receipt(
             ctx.clone(),
             borrower,
             debt_token,
             debt_token,
             swap_data,
             liquidation.maxDebt,
-            true,
         )
         .await;
     }
@@ -562,16 +557,21 @@ async fn pyth_solvency(
     }
 }
 
-async fn liquidate(
-    ctx: LiquidationContext<impl Provider + Clone + 'static>,
+async fn liquidate_and_wait_for_receipt<P>(
+    ctx: LiquidationContext<P>,
     borrower: Address,
     debt_token: Address,
     collateral_token: Address,
     swap_data: Bytes,
     max_debt: U256,
-    blacklist_if_failed: bool,
-) -> bool {
-    let tx = ctx
+) -> bool
+where
+    P: Provider + Clone + 'static,
+{
+    let tx: alloy::contract::CallBuilder<
+        &P,
+        std::marker::PhantomData<crate::types::ILiquidationHelper::executeLiquidationCall>,
+    > = ctx
         .helper
         .executeLiquidation(
             ctx.config.silo_address,
@@ -607,10 +607,48 @@ async fn liquidate(
         }
         Err(e) => {
             error!(?borrower, "❌ Liquidation tx failed: {e}");
-            if blacklist_if_failed {
-                ctx.blacklist.write().await.insert(borrower);
-            }
+            ctx.blacklist.write().await.insert(borrower);
+
             return false;
+        }
+    }
+}
+
+async fn liquidate_no_wait(
+    ctx: LiquidationContext<impl Provider + Clone + 'static>,
+    borrower: Address,
+    debt_token: Address,
+    collateral_token: Address,
+    swap_data: Bytes,
+    max_debt: U256,
+) {
+    match ctx
+        .helper
+        .executeLiquidation(
+            ctx.config.silo_address,
+            debt_token,
+            max_debt,
+            LiquidationData {
+                hook: ctx.config.hook_address,
+                collateralAsset: collateral_token,
+                borrower,
+            },
+            swap_data,
+        )
+        .gas(5_000_000u64)
+        .gas_price(65_000_000_000u128)
+        .send()
+        .await
+    {
+        Ok(pending_tx) => {
+            info!(
+                ?borrower,
+                "Liquidation (no wait) tx sent: {:?}",
+                pending_tx.tx_hash()
+            );
+        }
+        Err(e) => {
+            error!(?borrower, "Failed to send liquidation (no wait) tx: {e}");
         }
     }
 }
