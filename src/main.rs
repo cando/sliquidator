@@ -131,13 +131,16 @@ async fn main() -> Result<()> {
     let mut handles = vec![];
     for silo in &silo_configs {
         info!("Starting solvency monitor for silo: {}", silo.silo_address);
-        handles.push(spawn_tasks_for_silo(
-            silo.clone(),
-            provider.clone(),
-            lens.clone(),
-            helper.clone(),
-            args.fast_check_solvency_threshold,
-        ));
+        handles.push(
+            spawn_tasks_for_silo(
+                silo.clone(),
+                provider.clone(),
+                lens.clone(),
+                helper.clone(),
+                args.fast_check_solvency_threshold,
+            )
+            .await,
+        );
     }
 
     join_all(handles.into_iter().flatten().collect::<Vec<_>>()).await;
@@ -183,7 +186,7 @@ async fn handle_withdraw(
     Ok(())
 }
 
-fn spawn_tasks_for_silo<P>(
+async fn spawn_tasks_for_silo<P>(
     silo_config: SiloConfig,
     provider: P,
     lens: ISiloLensInstance<P>,
@@ -205,4 +208,5 @@ where
         10,
         threshold,
     )
+    .await
 }

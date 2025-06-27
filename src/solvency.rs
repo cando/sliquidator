@@ -5,7 +5,7 @@ use std::{
 };
 
 use alloy::{
-    eips::BlockNumberOrTag,
+    eips::{BlockId, BlockNumberOrTag},
     primitives::{address, aliases::I24, Address, Bytes, U160, U256},
     providers::Provider,
     rpc::types::Filter,
@@ -59,11 +59,13 @@ struct LiquidationContext<P: Provider + Clone + 'static> {
     blacklist: Arc<RwLock<HashSet<Address>>>,
     borrowers: SharedAddressList,
     fast_check_threshold: U256,
+    liquidation_threshold: U256,
 }
 
 const GET_USERS_HEALTH_BATCH_SIZE: usize = 50;
+const SAME_TOKEN_MULTIPLIER: u64 = 10;
 
-pub fn run_solvency_monitor<P>(
+pub async fn run_solvency_monitor<P>(
     provider: P,
     lens: ISiloLensInstance<P>,
     helper: ILiquidationHelperInstance<P>,
@@ -103,6 +105,12 @@ where
         None => SolvencyMode::Standard,
     };
 
+    let liquidation_threshold = lens
+        .getLt(config.silo_address)
+        .call()
+        .await
+        .unwrap_or_default();
+
     let ctx = LiquidationContext {
         provider,
         lens,
@@ -116,6 +124,7 @@ where
         blacklist: blacklist.clone(),
         borrowers,
         fast_check_threshold,
+        liquidation_threshold,
     };
 
     let mut handles = vec![
@@ -174,7 +183,18 @@ async fn refresh_watchlist_task<P: Provider + Clone + 'static>(
                             ctx.silo_config.getConfigsForSolvency(wallet).call().await
                         {
                             if !bh.lt.is_zero() && !bh.ltv.is_zero() {
-                                info!(wallet = %wallet, "Borrower near insolvency: LTV = {}, LT = {}, gap = {}", bh.ltv, bh.lt, gap);
+                                if config_data.collateralConfig.token
+                                    == config_data.debtConfig.token
+                                    && gap.saturating_mul(U256::from(SAME_TOKEN_MULTIPLIER))
+                                        > ctx.fast_check_threshold
+                                {
+                                    // Solvency check for same token borrow/lend is way slower, so
+                                    // we check if the gap is small enough to warrant it
+                                    info!(borrower = %wallet, gap = %gap, ltv=%bh.ltv, "Skipping same token check");
+                                    continue;
+                                }
+
+                                info!(borrower = %wallet, "Borrower near insolvency: LTV = {}, LT = {}, gap = {}", bh.ltv, bh.lt, gap);
                                 new_watchlist.push((
                                     wallet,
                                     config_data.collateralConfig.token,
@@ -272,139 +292,335 @@ async fn solvency_monitor_task<P: Provider + Clone + 'static>(
                 continue;
             }
 
-            let multicall = ctx
-                .provider
-                .multicall()
-                .add(ctx.hook.maxLiquidation(borrower))
-                .add(ctx.silo.isSolvent(borrower));
-
-            let (liquidation, mut is_solvent) = match multicall.aggregate().await {
-                Ok(result) => result,
-                Err(e) => {
-                    error!(?borrower, "Multicall failed: {e}");
-                    continue;
-                }
-            };
-
-            if is_solvent {
-                match &ctx.mode {
-                    SolvencyMode::SimulatedPyth { price_feed, .. } => {
-                        if let Some(p) = &*price_feed.read().await {
-                            match is_borrower_solvent_simulated(
-                                &ctx.provider,
-                                ctx.config.silo_address,
-                                borrower,
-                                p.publish_time,
-                                p.expo,
-                                p.price,
-                                p.conf,
-                            )
-                            .await
-                            {
-                                Ok(solvent) => {
-                                    is_solvent = solvent;
-                                    if is_solvent {
-                                        info!(?borrower, "Still solvent after Pyth simulation.");
-                                        continue;
-                                    }
-                                }
-                                Err(e) => {
-                                    error!(?borrower, "Pyth simulation failed: {e}");
-                                    continue;
-                                }
-                            }
-                        } else {
-                            warn!(?borrower, "No Pyth price, skipping simulation.");
-                            sleep(Duration::from_secs(5)).await;
-                            continue;
-                        }
-                    }
-                    SolvencyMode::Standard => {
-                        debug!(?borrower, "Standard check: solvent. Skipping.");
-                        continue;
+            match ctx.mode {
+                SolvencyMode::Standard => {
+                    if collateral_token == debt_token {
+                        same_token_solvency(ctx.clone(), borrower, debt_token).await;
+                    } else {
+                        standard_solvency(ctx.clone(), borrower, debt_token, collateral_token)
+                            .await;
                     }
                 }
+                SolvencyMode::SimulatedPyth {
+                    ref price_id,
+                    ref price_feed,
+                } => pyth_solvency(ctx.clone(), &price_id, &price_feed, borrower).await,
             }
+        }
+    }
+}
 
-            if !is_solvent
-                && liquidation.maxDebt
-                    < U256::from(ctx.config.min_amounts_for_liquidation[&debt_token])
-            {
-                warn!(
-                    ?borrower,
-                    "Insolvent but below min debt threshold. Skipping."
-                );
-                ctx.watchlist
-                    .write()
-                    .await
-                    .retain(|(w, _, _)| *w != borrower);
-                continue;
-            }
+async fn standard_solvency(
+    ctx: LiquidationContext<impl Provider + Clone + 'static>,
+    borrower: Address,
+    debt_token: Address,
+    collateral_token: Address,
+) {
+    let multicall = ctx
+        .provider
+        .multicall()
+        .add(ctx.hook.maxLiquidation(borrower))
+        .add(ctx.silo.isSolvent(borrower));
 
-            info!(?borrower, max_debt = %liquidation.maxDebt, "🚨 Borrower is insolvent → preparing liquidation");
+    let (liquidation, is_solvent) = match multicall.aggregate().await {
+        Ok(result) => result,
+        Err(e) => {
+            error!(?borrower, "Multicall failed: {e}");
+            return;
+        }
+    };
 
-            let swap_data = if collateral_token != debt_token {
-                let amount_for_swap =
-                    liquidation.collateralToLiquidate * U256::from(995) / U256::from(1000);
+    if is_solvent {
+        debug!(?borrower, "Standard check: solvent. Skipping.");
+        return;
+    }
 
-                let call = crate::types::IV3SwapRouter::exactInputSingleCall {
-                    params: crate::types::IV3SwapRouter::ExactInputSingleParams {
-                        tokenIn: collateral_token,
-                        tokenOut: debt_token,
-                        tickSpacing: I24::unchecked_from(50),
-                        recipient: *ctx.helper.address(),
-                        deadline: U256::from(
-                            SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .expect("Time went backwards")
-                                .as_secs()
-                                + 300,
-                        ),
-                        amountIn: amount_for_swap,
-                        amountOutMinimum: U256::ZERO,
-                        sqrtPriceLimitX96: U160::ZERO,
-                    },
-                };
-
-                Bytes::from(call.abi_encode())
-            } else {
-                Vec::new().into()
-            };
-
-            let tx = ctx
-                .helper
-                .executeLiquidation(
-                    ctx.config.silo_address,
-                    debt_token,
-                    liquidation.maxDebt,
-                    LiquidationData {
-                        hook: ctx.config.hook_address,
-                        collateralAsset: collateral_token,
-                        borrower,
-                    },
-                    swap_data,
-                )
-                .gas(5_000_000u64)
-                .gas_price(65_000_000_000u128);
-
-            match async {
-                let pending_tx = tx.send().await?;
-                let receipt = pending_tx.get_receipt().await?;
-                if !receipt.status() {
-                    return Err(eyre!("Transaction reverted"));
-                }
-                Ok(receipt)
-            }
+    if !is_solvent
+        && liquidation.maxDebt < U256::from(ctx.config.min_amounts_for_liquidation[&debt_token])
+    {
+        warn!(
+            ?borrower,
+            "Insolvent but below min debt threshold. Skipping."
+        );
+        ctx.watchlist
+            .write()
             .await
-            {
-                Ok(receipt) => {
-                    info!(block = ?receipt.block_number, "✅ Tx succeeded");
+            .retain(|(w, _, _)| *w != borrower);
+        return;
+    }
+
+    info!(?borrower, max_debt = %liquidation.maxDebt, "🚨 Borrower is insolvent → preparing liquidation");
+
+    let swap_data = if collateral_token != debt_token {
+        let amount_for_swap =
+            liquidation.collateralToLiquidate * U256::from(995) / U256::from(1000);
+
+        let call = crate::types::IV3SwapRouter::exactInputSingleCall {
+            params: crate::types::IV3SwapRouter::ExactInputSingleParams {
+                tokenIn: collateral_token,
+                tokenOut: debt_token,
+                tickSpacing: I24::unchecked_from(50),
+                recipient: *ctx.helper.address(),
+                deadline: U256::from(
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .expect("Time went backwards")
+                        .as_secs()
+                        + 300,
+                ),
+                amountIn: amount_for_swap,
+                amountOutMinimum: U256::ZERO,
+                sqrtPriceLimitX96: U160::ZERO,
+            },
+        };
+
+        Bytes::from(call.abi_encode())
+    } else {
+        Vec::new().into()
+    };
+
+    liquidate(
+        ctx.clone(),
+        borrower,
+        debt_token,
+        collateral_token,
+        swap_data,
+        liquidation.maxDebt,
+        true,
+    )
+    .await;
+}
+
+async fn same_token_solvency(
+    ctx: LiquidationContext<impl Provider + Clone + 'static>,
+    borrower: Address,
+    debt_token: Address,
+) {
+    let multicall = ctx
+        .provider
+        .multicall()
+        .add(ctx.hook.maxLiquidation(borrower))
+        .add(ctx.silo.isSolvent(borrower));
+
+    let (liquidation, is_solvent) = match multicall.aggregate().await {
+        Ok(result) => result,
+        Err(e) => {
+            error!(?borrower, "Multicall failed: {e}");
+            return;
+        }
+    };
+
+    if !is_solvent
+        && liquidation
+            .maxDebt
+            .saturating_mul(U256::from(SAME_TOKEN_MULTIPLIER))
+            < U256::from(ctx.config.min_amounts_for_liquidation[&debt_token])
+    {
+        warn!(
+            ?borrower,
+            "Insolvent but below min debt threshold. Skipping."
+        );
+        ctx.watchlist
+            .write()
+            .await
+            .retain(|(w, _, _)| *w != borrower);
+        return;
+    }
+
+    if is_solvent {
+        // Get the current block number
+        let block_number = match ctx.provider.get_block_number().await {
+            Ok(num) => num,
+            Err(_) => {
+                error!(?borrower, "Failed to get current block number");
+                return;
+            }
+        };
+
+        // Get the current LTV
+        let current_ltv = match ctx
+            .lens
+            .getLtv(ctx.config.silo_address, borrower)
+            .call()
+            .await
+        {
+            Ok(ltv) => ltv,
+            Err(_) => {
+                error!(?borrower, "Failed to get current LTV");
+                return;
+            }
+        };
+
+        let n_blocks_ago = 100;
+        let n_blocks_to_check = 5;
+
+        // Get the past LTV (block number - 100)
+        let past_ltv = match ctx
+            .lens
+            .getLtv(ctx.config.silo_address, borrower)
+            .block(BlockId::Number(BlockNumberOrTag::Number(
+                block_number - n_blocks_ago,
+            )))
+            .call()
+            .await
+        {
+            Ok(ltv) => ltv,
+            Err(_) => {
+                error!(?borrower, "Failed to get past LTV");
+                return;
+            }
+        };
+
+        // Calculate the delta and check if liquidation is necessary
+        let delta_per_last_n_blocks = current_ltv
+            .saturating_sub(past_ltv)
+            .div_ceil(U256::from(n_blocks_ago));
+        let delta_in_n_blocks =
+            delta_per_last_n_blocks.saturating_mul(U256::from(n_blocks_to_check));
+        if delta_in_n_blocks + current_ltv > ctx.liquidation_threshold {
+            info!(%borrower,
+                "🚨 Borrower is solvent, but LTV delta is high enough to start trying to liquidate:
+            current LTV = {}, past LTV = {}, avg delta = {}. Simulated LTV: {}",
+                current_ltv,
+                past_ltv,
+                delta_per_last_n_blocks,
+                delta_in_n_blocks + current_ltv
+            );
+
+            let liquidation_tentatives = 0;
+            while liquidation_tentatives < 15 {
+                if liquidate(
+                    ctx.clone(),
+                    borrower,
+                    debt_token,
+                    debt_token,
+                    Bytes::new(),
+                    liquidation.maxDebt,
+                    false,
+                )
+                .await
+                {
+                    return;
                 }
-                Err(e) => {
-                    error!(?borrower, "❌ Liquidation tx failed: {e}");
-                    ctx.blacklist.write().await.insert(borrower);
+                sleep(Duration::from_millis(200)).await;
+            }
+
+            return;
+        }
+
+        // Log if the borrower is still solvent
+        info!(%borrower,
+        "Borrower is solvent, LTV is too low to liquidate: current LTV = {}, past LTV = {}, avg delta = {}.  Simulated LTV: {}",
+        current_ltv,
+        past_ltv,
+        delta_per_last_n_blocks,
+        delta_in_n_blocks + current_ltv);
+    } else {
+        info!(
+            ?borrower,
+            "🚨 Same token Borrower is (already) insolvent → preparing liquidation"
+        );
+
+        let swap_data = Bytes::new(); // No swap needed for same token liquidation
+
+        liquidate(
+            ctx.clone(),
+            borrower,
+            debt_token,
+            debt_token,
+            swap_data,
+            liquidation.maxDebt,
+            true,
+        )
+        .await;
+    }
+}
+
+async fn pyth_solvency(
+    ctx: LiquidationContext<impl Provider + Clone + 'static>,
+    _price_id: &String,
+    price_feed: &SharedPythPrice,
+    borrower: Address,
+) {
+    if let Some(p) = &*price_feed.read().await {
+        match is_borrower_solvent_simulated(
+            &ctx.provider,
+            ctx.config.silo_address,
+            borrower,
+            p.publish_time,
+            p.expo,
+            p.price,
+            p.conf,
+        )
+        .await
+        {
+            Ok(solvent) => {
+                if solvent {
+                    info!(?borrower, "Still solvent after Pyth simulation.");
+                    return;
                 }
             }
+            Err(e) => {
+                error!(?borrower, "Pyth simulation failed: {e}");
+                return;
+            }
+        }
+    } else {
+        warn!(?borrower, "No Pyth price, skipping simulation.");
+        sleep(Duration::from_secs(5)).await;
+        return;
+    }
+}
+
+async fn liquidate(
+    ctx: LiquidationContext<impl Provider + Clone + 'static>,
+    borrower: Address,
+    debt_token: Address,
+    collateral_token: Address,
+    swap_data: Bytes,
+    max_debt: U256,
+    blacklist_if_failed: bool,
+) -> bool {
+    let tx = ctx
+        .helper
+        .executeLiquidation(
+            ctx.config.silo_address,
+            debt_token,
+            max_debt,
+            LiquidationData {
+                hook: ctx.config.hook_address,
+                collateralAsset: collateral_token,
+                borrower,
+            },
+            swap_data,
+        )
+        .gas(5_000_000u64)
+        .gas_price(65_000_000_000u128);
+
+    match async {
+        let pending_tx = tx.send().await?;
+        let receipt = pending_tx.get_receipt().await?;
+        if !receipt.status() {
+            return Err(eyre!("Transaction reverted"));
+        }
+        Ok(receipt)
+    }
+    .await
+    {
+        Ok(receipt) => {
+            info!(?receipt.block_number, %borrower, "✅ Tx succeeded");
+            ctx.watchlist
+                .write()
+                .await
+                .retain(|(w, _, _)| *w != borrower);
+            return true;
+        }
+        Err(e) => {
+            error!(?borrower, "❌ Liquidation tx failed: {e}");
+            if blacklist_if_failed {
+                ctx.blacklist.write().await.insert(borrower);
+            }
+            return false;
         }
     }
 }

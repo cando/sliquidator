@@ -56,6 +56,10 @@ sol! {
     interface ISiloLens {
         function getUsersHealth(Borrower[] borrowers) view returns (BorrowerHealth[]);
         function isSolvent(address borrower) view returns (bool);
+        function getLtv(address silo, address borrower) view returns (uint256);
+        function getLt(address silo) view returns (uint256);
+
+
     }
 
     #[sol(rpc)]
