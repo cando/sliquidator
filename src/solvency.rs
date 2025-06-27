@@ -468,7 +468,7 @@ async fn same_token_solvency(
             );
 
             let liquidation_tentatives = 0;
-            while liquidation_tentatives < 15 {
+            while liquidation_tentatives < 25 {
                 if liquidate(
                     ctx.clone(),
                     borrower,
@@ -483,6 +483,9 @@ async fn same_token_solvency(
                     return;
                 }
                 sleep(Duration::from_millis(200)).await;
+                // current block time in sonic is around 500ms.
+                // so trying 25 times with 200ms sleep it measn we cover ~ 5 seconds, which is more than
+                // the 5 blocks with simulated LTV
             }
 
             return;

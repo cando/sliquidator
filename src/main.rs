@@ -205,7 +205,7 @@ where
         helper,
         silo_config_for_watch,
         30,
-        10,
+        20,
         threshold,
     )
     .await
