@@ -9,8 +9,7 @@
         "min_amounts_for_liquidation": {
             "0x039e2fB66102314Ce7b64Ce5Ce3E5183bc94aD38": 1200000000000000000,
             "0x29219dd400f2Bf60E5a23d13Be72B486D4038894": 500000
-        },
-        "simulate_solvency_price": false
+        }
     },
     {
         "_": "SIL01 (USDC) -  Market 20 (S/USDC)",

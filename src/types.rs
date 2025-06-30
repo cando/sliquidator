@@ -90,6 +90,17 @@ sol! {
             uint256 withdrawnCollateral,
             uint256 repaidDebt
         );
+
+        function executeLiquidationBlind(
+            address silo,
+            address hook,
+            address debtAsset,
+            LiquidationData liquidation,
+            bytes swapData
+        ) returns (
+            uint256 withdrawnCollateral,
+            uint256 repaidDebt
+        );
     }
 
     #[sol(rpc)]

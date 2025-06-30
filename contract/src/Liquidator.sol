@@ -6,9 +6,12 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IERC3156FlashBorrower} from "@silo-core/interfaces/IERC3156FlashBorrower.sol";
-import {ILiquidationHelper} from "@silo-core/interfaces/ILiquidationHelper.sol";
+import {IPartialLiquidation} from "@silo-core/interfaces/IPartialLiquidation.sol";
 
 import {ISilo} from "@silo-core/interfaces/ISilo.sol";
+import {IHookReceiver} from "@silo-core/interfaces/IHookReceiver.sol";
+import {ILiquidationHelper} from "@silo-core/interfaces/ILiquidationHelper.sol";
+
 import {IWrappedNativeToken} from "@silo-core/interfaces/IWrappedNativeToken.sol";
 
 
@@ -72,6 +75,24 @@ contract LiquidationHelper is IERC3156FlashBorrower {
         bytes calldata _swapsInputs
     ) external virtual returns (uint256 withdrawCollateral, uint256 repayDebtAssets) {
         require(_maxDebtToCover != 0, NoDebtToCover());
+
+        _flashLoanFrom.flashLoan(this, _debtAsset, _maxDebtToCover, abi.encode(_liquidation, _swapsInputs));
+        IERC20(_debtAsset).forceApprove(address(_flashLoanFrom), 0);
+
+        withdrawCollateral = _withdrawCollateral;
+        repayDebtAssets = _repayDebtAssets;
+    }
+
+    /// @dev entry point for liquidation without specifying max debt to cover
+    function executeLiquidationBlind(
+        ISilo _flashLoanFrom,
+        IPartialLiquidation silo_hook,
+        address _debtAsset,
+        ILiquidationHelper.LiquidationData calldata _liquidation,
+        bytes calldata _swapsInputs
+    ) external virtual returns (uint256 withdrawCollateral, uint256 repayDebtAssets) {
+
+        (, uint256 _maxDebtToCover,) = silo_hook.maxLiquidation(_liquidation.user);
 
         _flashLoanFrom.flashLoan(this, _debtAsset, _maxDebtToCover, abi.encode(_liquidation, _swapsInputs));
         IERC20(_debtAsset).forceApprove(address(_flashLoanFrom), 0);

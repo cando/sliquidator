@@ -296,8 +296,7 @@ async fn solvency_monitor_task<P: Provider + Clone + 'static>(
             match ctx.mode {
                 SolvencyMode::Standard => {
                     if collateral_token == debt_token {
-                        standard_solvency(ctx.clone(), borrower, debt_token, collateral_token)
-                            .await;
+                        same_token_solvency(ctx.clone(), borrower, debt_token).await;
                     } else {
                         standard_solvency(ctx.clone(), borrower, debt_token, collateral_token)
                             .await;
@@ -353,40 +352,18 @@ async fn standard_solvency(
 
     info!(?borrower, max_debt = %liquidation.maxDebt, "🚨 Borrower is insolvent → preparing liquidation");
 
-    let swap_data = if collateral_token != debt_token {
-        let amount_for_swap =
-            liquidation.collateralToLiquidate * U256::from(995) / U256::from(1000);
-
-        let call = crate::types::IV3SwapRouter::exactInputSingleCall {
-            params: crate::types::IV3SwapRouter::ExactInputSingleParams {
-                tokenIn: collateral_token,
-                tokenOut: debt_token,
-                tickSpacing: I24::unchecked_from(50),
-                recipient: *ctx.helper.address(),
-                deadline: U256::from(
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .expect("Time went backwards")
-                        .as_secs()
-                        + 300,
-                ),
-                amountIn: amount_for_swap,
-                amountOutMinimum: U256::ZERO,
-                sqrtPriceLimitX96: U160::ZERO,
-            },
-        };
-
-        Bytes::from(call.abi_encode())
-    } else {
-        Vec::new().into()
-    };
-
     liquidate_and_wait_for_receipt(
         ctx.clone(),
         borrower,
         debt_token,
         collateral_token,
-        swap_data,
+        get_swap_data(
+            &ctx,
+            collateral_token,
+            debt_token,
+            liquidation.collateralToLiquidate,
+        )
+        .await,
         liquidation.maxDebt,
     )
     .await;
@@ -435,8 +412,9 @@ async fn same_token_solvency(
             }
         };
 
-        let n_blocks_ago = 100;
+        let n_blocks_ago = 50;
         let n_blocks_to_check = 5;
+        let delta_threshold = U256::from(50000000000 as u64);
 
         // Get the past LTV (block number - 100)
         let past_ltv = match ctx
@@ -459,6 +437,17 @@ async fn same_token_solvency(
         let delta_per_last_n_blocks = current_ltv
             .saturating_sub(past_ltv)
             .div_ceil(U256::from(n_blocks_ago));
+        if delta_per_last_n_blocks > delta_threshold {
+            warn!(
+                %borrower,
+                %ctx.config.silo_address,
+                %delta_per_last_n_blocks,
+                "LTV delta per last {} blocks is too high, skipping",
+                n_blocks_ago,
+            );
+            return;
+        }
+
         let delta_in_n_blocks =
             delta_per_last_n_blocks.saturating_mul(U256::from(n_blocks_to_check));
         if delta_in_n_blocks + current_ltv > ctx.liquidation_threshold {
@@ -468,21 +457,20 @@ async fn same_token_solvency(
             );
 
             let mut liquidation_tentatives = 0;
-            while liquidation_tentatives < 25 {
-                liquidate_no_wait(
+            while liquidation_tentatives < 15 {
+                liquidate_no_debt_and_no_wait(
                     ctx.clone(),
                     borrower,
                     debt_token,
                     debt_token,
                     Bytes::new(),
-                    liquidation.maxDebt,
                 )
                 .await;
 
-                sleep(Duration::from_millis(200)).await;
+                sleep(Duration::from_millis(300)).await;
                 liquidation_tentatives += 1;
-                // current block time in sonic is around 500ms.
-                // so trying 25 times with 200ms sleep it measn we cover ~ 5 seconds, which is more than
+                // current block time in sonic is around 500-600ms.
+                // so trying 15 times with 300ms sleep it measn we cover ~ 5 seconds, which is more than
                 // the 5 blocks with simulated LTV
             }
 
@@ -559,6 +547,40 @@ async fn pyth_solvency(
     }
 }
 
+async fn get_swap_data(
+    ctx: &LiquidationContext<impl Provider + Clone + 'static>,
+    collateral_token: Address,
+    debt_token: Address,
+    collateral_to_liquidate: U256,
+) -> Bytes {
+    if collateral_token != debt_token {
+        let amount_for_swap = collateral_to_liquidate * U256::from(995) / U256::from(1000);
+
+        let call = crate::types::IV3SwapRouter::exactInputSingleCall {
+            params: crate::types::IV3SwapRouter::ExactInputSingleParams {
+                tokenIn: collateral_token,
+                tokenOut: debt_token,
+                tickSpacing: I24::unchecked_from(50),
+                recipient: *ctx.helper.address(),
+                deadline: U256::from(
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .expect("Time went backwards")
+                        .as_secs()
+                        + 300,
+                ),
+                amountIn: amount_for_swap,
+                amountOutMinimum: U256::ZERO,
+                sqrtPriceLimitX96: U160::ZERO,
+            },
+        };
+
+        Bytes::from(call.abi_encode())
+    } else {
+        Vec::new().into()
+    }
+}
+
 async fn liquidate_and_wait_for_receipt<P>(
     ctx: LiquidationContext<P>,
     borrower: Address,
@@ -570,6 +592,7 @@ async fn liquidate_and_wait_for_receipt<P>(
 where
     P: Provider + Clone + 'static,
 {
+    info!(collateral_token = ?collateral_token, debt_token = ?debt_token, ?borrower, "🚀 Sending liquidation tx...");
     let tx: alloy::contract::CallBuilder<
         &P,
         std::marker::PhantomData<crate::types::ILiquidationHelper::executeLiquidationCall>,
@@ -616,20 +639,19 @@ where
     }
 }
 
-async fn liquidate_no_wait(
+async fn liquidate_no_debt_and_no_wait(
     ctx: LiquidationContext<impl Provider + Clone + 'static>,
     borrower: Address,
     debt_token: Address,
     collateral_token: Address,
     swap_data: Bytes,
-    max_debt: U256,
 ) {
     match ctx
         .helper
-        .executeLiquidation(
+        .executeLiquidationBlind(
             ctx.config.silo_address,
+            ctx.config.hook_address,
             debt_token,
-            max_debt,
             LiquidationData {
                 hook: ctx.config.hook_address,
                 collateralAsset: collateral_token,
