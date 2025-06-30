@@ -296,7 +296,8 @@ async fn solvency_monitor_task<P: Provider + Clone + 'static>(
             match ctx.mode {
                 SolvencyMode::Standard => {
                     if collateral_token == debt_token {
-                        same_token_solvency(ctx.clone(), borrower, debt_token).await;
+                        standard_solvency(ctx.clone(), borrower, debt_token, collateral_token)
+                            .await;
                     } else {
                         standard_solvency(ctx.clone(), borrower, debt_token, collateral_token)
                             .await;
@@ -466,7 +467,7 @@ async fn same_token_solvency(
                 delta_in_n_blocks + current_ltv
             );
 
-            let liquidation_tentatives = 0;
+            let mut liquidation_tentatives = 0;
             while liquidation_tentatives < 25 {
                 liquidate_no_wait(
                     ctx.clone(),
@@ -479,6 +480,7 @@ async fn same_token_solvency(
                 .await;
 
                 sleep(Duration::from_millis(200)).await;
+                liquidation_tentatives += 1;
                 // current block time in sonic is around 500ms.
                 // so trying 25 times with 200ms sleep it measn we cover ~ 5 seconds, which is more than
                 // the 5 blocks with simulated LTV
