@@ -477,7 +477,7 @@ async fn same_token_solvency(
             return;
         }
 
-        info!(%borrower, %ctx.config.silo_address, %current_ltv, %past_ltv, %delta_per_last_n_blocks, %delta_in_n_blocks,
+        debug!(%borrower, %ctx.config.silo_address, %current_ltv, %past_ltv, %delta_per_last_n_blocks, %delta_in_n_blocks,
         "Borrower is solvent, LTV is too low to liquidate. Simulated LTV: {}", delta_in_n_blocks + current_ltv);
     } else {
         if liquidation.maxDebt < U256::from(ctx.config.min_amounts_for_liquidation[&debt_token]) {
