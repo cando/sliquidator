@@ -457,7 +457,7 @@ async fn same_token_solvency(
             );
 
             let mut liquidation_tentatives = 0;
-            while liquidation_tentatives < 15 {
+            while liquidation_tentatives < 10 {
                 liquidate_no_debt_and_no_wait(
                     ctx.clone(),
                     borrower,
