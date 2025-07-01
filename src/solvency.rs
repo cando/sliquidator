@@ -6,7 +6,7 @@ use std::{
 
 use alloy::{
     eips::{BlockId, BlockNumberOrTag},
-    primitives::{address, aliases::I24, Address, Bytes, U160, U256},
+    primitives::{aliases::I24, Address, Bytes, U160, U256},
     providers::Provider,
     rpc::types::Filter,
     sol_types::SolCall,
@@ -83,9 +83,7 @@ where
     let fast_check_threshold = percent_to_wei(fast_check_solvency_threshold);
 
     let watchlist = Arc::new(RwLock::new(Vec::new()));
-    let blacklist = Arc::new(RwLock::new(HashSet::from([address!(
-        "0xdec0000000000000000000000000000000000001"
-    )])));
+    let blacklist = Arc::new(RwLock::new(HashSet::from([])));
     let shared_pyth_price: SharedPythPrice = Arc::new(RwLock::new(None));
 
     let initial_borrowers = load_borrowers(&config.borrowers_file);
