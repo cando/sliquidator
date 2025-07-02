@@ -331,7 +331,9 @@ where
 
     info!("Awaiting pending S/USDC Chainlink Forward transactions...");
 
-    while let Some(tx) = stream.next().await {
+    while let Some(_tx) = stream.next().await {
+        let tx = _tx.into_inner();
+        info!("Pending transaction detected: {:?}", &tx.hash());
         // forwarder address
         if tx.to() == Some(address!("0xF2Ab88678d19E8c7D3d621177a901F7d476ad92b")) {
             match forwardCall::abi_decode(&tx.input()) {
@@ -349,7 +351,7 @@ where
                                         match chainlink_is_borrower_solvent_simulated(
                                             &ctx.provider,
                                             ctx.config.silo_address,
-                                            Address::ZERO, // Borrower address is not used in this context
+                                            address!("0xdec0000000000000000000000000000000000002"),
                                             median_value,
                                         )
                                         .await

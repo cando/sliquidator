@@ -1,7 +1,9 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use alloy::{
     eips::BlockId,
     network::TransactionBuilder,
-    primitives::{Address, Bytes, FixedBytes, Signed, U256},
+    primitives::{aliases::I192, Address, Bytes, FixedBytes, Signed, U256},
     providers::Provider,
     rpc::types::{
         state::{StateOverride, StateOverridesBuilder},
@@ -161,13 +163,21 @@ where
 /// Encodes the ChainLink Trasmission struct into Solidity's packed storage layout for slot 0.
 ///
 /// Layout (packed, 32 bytes):
-///   [28..32] ← uint32 transmissionTimestamp
-///   [24..28] ← uint32 observationsTimestamp
-///   [0..24] ← int192 price
-fn encode_transmission(price: Signed<192, 3>) -> [u8; 32] {
+///   [0..4] ← uint32 transmissionTimestamp
+///   [4..8] ← uint32 observationsTimestamp
+///   [8..32] ← int192 price
+fn encode_transmission(price: I192) -> [u8; 32] {
     let mut slot = [0u8; 32];
 
-    slot[0..24].copy_from_slice(&price.to_be_bytes::<24>());
+    // Get current Unix timestamp (as u32)
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as u32;
+
+    slot[0..4].copy_from_slice(&now.to_be_bytes()); // transmissionTimestamp
+    slot[4..8].copy_from_slice(&now.to_be_bytes()); // observationsTimestamp
+    slot[8..32].copy_from_slice(&price.to_be_bytes::<24>());
 
     slot
 }
