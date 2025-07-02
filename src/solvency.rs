@@ -346,35 +346,26 @@ where
                                             report.observations[report.observations.len() / 2];
                                         info!("Chainlink report S/USDC received: epoch = {}, median_value = {}", report.epoch, median_value);
 
-                                        let result = chainlink_is_borrower_solvent_simulated(
+                                        match chainlink_is_borrower_solvent_simulated(
                                             &ctx.provider,
                                             ctx.config.silo_address,
                                             Address::ZERO, // Borrower address is not used in this context
                                             median_value,
                                         )
-                                        .await;
-
-                                        // Got storage layout via:
-                                        // slither-read-storage sonic:0x0BdbFF19543B20d0bc2d1eA08deE2be4C0b76743 --json storage_layout.json --rpc-url http://localhost:8545
-                                        //--etherscan-apikey XXX --value
-
-                                        // cast storage 0x0BdbFF19543B20d0bc2d1eA08deE2be4C0b76743 11 <- prendo il valore della struct s_hotvars
-                                        // 000000000000000000000000000000000000000000000000 3bea 0001392b0203
-                                        // ci interessa latestAggregatorRoundId offset 48   ^^^^^
-                                        // 000000000000000000000000000000000000000000000000 0001 0001392b0203 <- così vuol dire primo index
-                                        //
-                                        // Inoltre lo storage della transmission vera e propria (forzandola all' index 1) è a (s_transmissions has slot 12):
-                                        // cast index uint32 1 12
-                                        // 0xd421a5181c571bba3f01190c922c3b2a896fc1d84e86c9f17ac10e67ebef8b5c
-                                        //
-                                        // il valore è del tipo:
-                                        // 0x67896a48678969ff000000000000000000000000000000000000000004b62060
-                                        // no dobbiamo modificare i valori del price sulla destra     ^^^^^^
-                                        // Riassumendo dobbiamo fare una call con override del genere:
-                                        // 11 ->
-                                        //  000000000000000000000000000000000000000000000000 0001 0001392b0203
-                                        // 0xd421a5181c571bba3f01190c922c3b2a896fc1d84e86c9f17ac10e67ebef8b5c ->
-                                        //  0x67896a48678969ff00000000000000000000000000000000000000000<NUMERO RICEVUTO DALLA TRANSACTION FORWARD>
+                                        .await
+                                        {
+                                            Ok(solvent) => {
+                                                if solvent {
+                                                    info!("Borrower is solvent after Chainlink simulation.");
+                                                } else {
+                                                    info!("Borrower is insolvent after Chainlink simulation.");
+                                                }
+                                            }
+                                            Err(e) => {
+                                                error!("Chainlink simulation failed: {e}");
+                                                continue;
+                                            }
+                                        }
                                     }
                                     Err(e) => {
                                         warn!("Failed to decode Chainlink report: {e}");
