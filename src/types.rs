@@ -127,4 +127,23 @@ sol! {
         function exactInputSingle(ExactInputSingleParams params) payable external returns (uint256 amountOut);
     }
 
+    #[sol(rpc)]
+    interface IChainlinkForwarder {
+        function forward(address to, bytes data) external;
+    }
+
+    #[sol(rpc)]
+    interface IChainlinkAggregator {
+        struct ReportDecode {
+            uint32 epoch;
+            bytes32 config_digest;
+            int192[] observations;
+            int192 juels_per_fee_coin;
+        }
+
+        function transmit(bytes32[3] reportContext, bytes report, bytes32[] rs, bytes32[] ss, bytes32 rawVs);
+    }
+
+
+
 }

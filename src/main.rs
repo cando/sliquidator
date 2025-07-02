@@ -4,6 +4,7 @@ mod pyth_simulator;
 mod solvency;
 mod types;
 mod utils;
+
 use crate::config::{load_silo_configs, SiloConfig};
 use crate::solvency::run_solvency_monitor;
 use crate::types::ILiquidationHelper::ILiquidationHelperInstance;

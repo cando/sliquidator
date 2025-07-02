@@ -5,11 +5,12 @@ use std::{
 };
 
 use alloy::{
+    consensus::Transaction,
     eips::{BlockId, BlockNumberOrTag},
-    primitives::{aliases::I24, Address, Bytes, U160, U256},
+    primitives::{address, aliases::I24, Address, Bytes, U160, U256},
     providers::Provider,
     rpc::types::Filter,
-    sol_types::SolCall,
+    sol_types::{SolCall, SolValue},
 };
 use eyre::eyre;
 use futures::StreamExt;
@@ -26,6 +27,8 @@ use crate::{
     pyth_simulator::is_borrower_solvent_simulated,
     types::{
         Borrower,
+        IChainlinkAggregator::{transmitCall, ReportDecode},
+        IChainlinkForwarder::forwardCall,
         IHookReceiver::{self, IHookReceiverInstance},
         ILiquidationHelper::ILiquidationHelperInstance,
         ISilo::{self, ISiloInstance},
@@ -132,6 +135,7 @@ where
             ctx.clone(),
             near_insolvency_check_millis,
         )),
+        tokio::spawn(chainlink_forward_listener(ctx.clone())),
     ];
 
     match mode {
@@ -304,6 +308,61 @@ async fn solvency_monitor_task<P: Provider + Clone + 'static>(
                     ref price_id,
                     ref price_feed,
                 } => pyth_solvency(ctx.clone(), &price_id, &price_feed, borrower).await,
+            }
+        }
+    }
+}
+
+async fn chainlink_forward_listener<P>(ctx: LiquidationContext<P>)
+where
+    P: Provider + Clone + 'static,
+{
+    let sub = match ctx.provider.subscribe_full_pending_transactions().await {
+        Ok(sub) => sub,
+        Err(e) => {
+            error!("Failed to subscribe to pending transactions: {e}");
+            return;
+        }
+    };
+
+    let mut stream = sub.into_stream();
+
+    info!("Awaiting pending S/USDC Chainlink Forward transactions...");
+
+    while let Some(tx) = stream.next().await {
+        // forwarder address
+        if tx.to() == Some(address!("0xF2Ab88678d19E8c7D3d621177a901F7d476ad92b")) {
+            match forwardCall::abi_decode(&tx.input()) {
+                Ok(call) => {
+                    if call.to == address!("0x0BdbFF19543B20d0bc2d1eA08deE2be4C0b76743") {
+                        match transmitCall::abi_decode(&call.data) {
+                            Ok(transmit_call) => {
+                                info!(report = ?transmit_call.report, "Chainlink transmit call detected");
+                                match ReportDecode::abi_decode_params(&transmit_call.report) {
+                                    Ok(report) => {
+                                        let median_value =
+                                            report.observations[report.observations.len() / 2];
+                                        info!("Chainlink report S/USDC received: epoch = {}, median_value = {}", report.epoch, median_value);
+
+                                        // TODO simulate call with new value
+                                    }
+                                    Err(e) => {
+                                        warn!("Failed to decode Chainlink report: {e}");
+                                        continue;
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                warn!("Failed to decode transmit call: {e}");
+                                continue;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to decode transaction input: {e}");
+                    continue;
+                }
             }
         }
     }
