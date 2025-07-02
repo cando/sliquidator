@@ -24,7 +24,9 @@ use tracing::{debug, error, info, warn};
 use crate::{
     config::SiloConfig,
     hermes::{hermes_price_feed_task, SharedPythPrice},
-    pyth_simulator::is_borrower_solvent_simulated,
+    oracle_simulator::{
+        chainlink_is_borrower_solvent_simulated, pyth_is_borrower_solvent_simulated,
+    },
     types::{
         Borrower,
         IChainlinkAggregator::{transmitCall, ReportDecode},
@@ -344,7 +346,13 @@ where
                                             report.observations[report.observations.len() / 2];
                                         info!("Chainlink report S/USDC received: epoch = {}, median_value = {}", report.epoch, median_value);
 
-                                        // TODO simulate call with new value
+                                        let result = chainlink_is_borrower_solvent_simulated(
+                                            &ctx.provider,
+                                            ctx.config.silo_address,
+                                            Address::ZERO, // Borrower address is not used in this context
+                                            median_value,
+                                        )
+                                        .await;
 
                                         // Got storage layout via:
                                         // slither-read-storage sonic:0x0BdbFF19543B20d0bc2d1eA08deE2be4C0b76743 --json storage_layout.json --rpc-url http://localhost:8545
@@ -597,7 +605,7 @@ async fn pyth_solvency(
     borrower: Address,
 ) {
     if let Some(p) = &*price_feed.read().await {
-        match is_borrower_solvent_simulated(
+        match pyth_is_borrower_solvent_simulated(
             &ctx.provider,
             ctx.config.silo_address,
             borrower,

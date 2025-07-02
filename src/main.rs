@@ -1,6 +1,6 @@
 mod config;
 mod hermes;
-mod pyth_simulator;
+mod oracle_simulator;
 mod solvency;
 mod types;
 mod utils;
