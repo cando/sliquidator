@@ -11,6 +11,7 @@ use alloy::{
     },
     sol_types::SolCall,
 };
+use once_cell::sync::Lazy;
 
 use crate::types::ISiloLens::isSolventCall;
 use hex::FromHex;
@@ -89,6 +90,25 @@ where
 //    - Slot keccak256(abi.encode(1, 12)) = s_transmissions[1]:
 //      0xd421a5... → 0x<encoded Transmission struct>
 
+static S_USDC_CHAINLINK_ADDRESS: Lazy<Address> = Lazy::new(|| {
+    "0x0BdbFF19543B20d0bc2d1eA08deE2be4C0b76743"
+        .parse()
+        .expect("valid address")
+});
+
+static HOTVARS_SLOT_11: Lazy<FixedBytes<32>> = Lazy::new(|| {
+    FixedBytes::<32>::from_slice(
+        &<[u8; 32]>::from_hex("00000000000000000000000000000000000000000000000000010001392b0203")
+            .expect("valid hex"),
+    )
+});
+
+static TRANSMISSIONS_SLOT: Lazy<FixedBytes<32>> = Lazy::new(|| {
+    "0xd421a5181c571bba3f01190c922c3b2a896fc1d84e86c9f17ac10e67ebef8b5c"
+        .parse()
+        .expect("valid slot")
+});
+
 pub async fn chainlink_is_borrower_solvent_simulated<P>(
     provider: &P,
     silo: Address,
@@ -98,34 +118,33 @@ pub async fn chainlink_is_borrower_solvent_simulated<P>(
 where
     P: Provider + Clone + 'static,
 {
-    let encoded_hot_vars_with_first_last_trasmission = FixedBytes::<32>::from_slice(
-        &<[u8; 32]>::from_hex("00000000000000000000000000000000000000000000000000010001392b0203")?,
-    );
-
-    let s_tramissions_slot =
-        "0xd421a5181c571bba3f01190c922c3b2a896fc1d84e86c9f17ac10e67ebef8b5c".parse()?;
-
-    let encoded_trasmission_padding = FixedBytes::<32>::from_slice(&encode_transmission(price));
-
-    let s_usdc_chainlink: Address = "0x0BdbFF19543B20d0bc2d1eA08deE2be4C0b76743".parse()?;
+    let encoded_transmission = FixedBytes::<32>::from_slice(&encode_transmission(price));
 
     let storage_overrides = vec![
-        (
-            FixedBytes::<32>::from(U256::from(11)),
-            encoded_hot_vars_with_first_last_trasmission,
-        ),
-        (s_tramissions_slot, encoded_trasmission_padding),
+        (FixedBytes::<32>::from(U256::from(11)), *HOTVARS_SLOT_11),
+        (*TRANSMISSIONS_SLOT, encoded_transmission),
     ];
 
-    dbg!(&storage_overrides);
-
-    let state_overrides_builder = StateOverridesBuilder::default();
-    let state_override = state_overrides_builder
-        .with_state_diff(s_usdc_chainlink, storage_overrides)
+    let state_override = StateOverridesBuilder::default()
+        .with_state_diff(*S_USDC_CHAINLINK_ADDRESS, storage_overrides)
         .build();
 
     is_borrower_solvent_simulated(provider, silo, borrower, state_override).await
 }
+
+// Static Pyth price storage slot (hardcoded for ANON/USDC)
+static PYTH_SLOT0: Lazy<FixedBytes<32>> = Lazy::new(|| {
+    "0x586baa15fa17b0fbbc6939b28eb3223994dfa95a07202f334b47673e00596743"
+        .parse()
+        .expect("valid storage slot")
+});
+
+// Static Pyth Oracle address (ANON/USDC)
+static PYTH_ORACLE_ADDRESS: Lazy<Address> = Lazy::new(|| {
+    "0x2880aB155794e7179c9eE2e38200202908C17B43"
+        .parse()
+        .expect("valid address")
+});
 
 pub async fn pyth_is_borrower_solvent_simulated<P>(
     provider: &P,
@@ -139,22 +158,13 @@ pub async fn pyth_is_borrower_solvent_simulated<P>(
 where
     P: Provider + Clone + 'static,
 {
-    // Compute slot 0 override
-    let encoded_slot0 = encode_priceinfo_slot0(publish_time, expo, price, conf);
-    let value0 = FixedBytes::<32>::from_slice(&encoded_slot0);
+    let encoded = encode_priceinfo_slot0(publish_time, expo, price, conf);
+    let value = FixedBytes::<32>::from_slice(&encoded);
 
-    // Slot = keccak(price_id, 213 + 12), hardcoded for ANON/USDC
-    let anon_usdc_pyth_slot0: FixedBytes<32> =
-        "0x586baa15fa17b0fbbc6939b28eb3223994dfa95a07202f334b47673e00596743".parse()?;
+    let storage_overrides = vec![(*PYTH_SLOT0, value)];
 
-    // ANON/USDC Pyth Oracle address
-    let anon_usdc_pyth: Address = "0x2880aB155794e7179c9eE2e38200202908C17B43".parse()?;
-
-    let storage_overrides = vec![(anon_usdc_pyth_slot0, value0)];
-
-    let state_overrides_builder = StateOverridesBuilder::default();
-    let state_override = state_overrides_builder
-        .with_state_diff(anon_usdc_pyth, storage_overrides)
+    let state_override = StateOverridesBuilder::default()
+        .with_state_diff(*PYTH_ORACLE_ADDRESS, storage_overrides)
         .build();
 
     is_borrower_solvent_simulated(provider, silo, borrower, state_override).await

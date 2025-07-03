@@ -5,12 +5,11 @@ use std::{
 };
 
 use alloy::{
-    consensus::Transaction,
     eips::{BlockId, BlockNumberOrTag},
-    primitives::{address, aliases::I24, Address, Bytes, U160, U256},
+    primitives::{aliases::I24, Address, Bytes, U160, U256},
     providers::Provider,
     rpc::types::Filter,
-    sol_types::{SolCall, SolValue},
+    sol_types::SolCall,
 };
 use eyre::eyre;
 use futures::StreamExt;
@@ -22,50 +21,21 @@ use tokio::{
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    config::SiloConfig,
+    chainlink::{chainlink_forward_listener_task, SharedChainlinkPrice},
+    config::{LiquidationContext, SiloConfig, SolvencyMode},
     hermes::{hermes_price_feed_task, SharedPythPrice},
-    oracle_simulator::{
-        chainlink_is_borrower_solvent_simulated, pyth_is_borrower_solvent_simulated,
-    },
+    oracle_simulator::pyth_is_borrower_solvent_simulated,
     types::{
         Borrower,
-        IChainlinkAggregator::{transmitCall, ReportDecode},
-        IChainlinkForwarder::forwardCall,
-        IHookReceiver::{self, IHookReceiverInstance},
+        IHookReceiver::{self},
         ILiquidationHelper::ILiquidationHelperInstance,
-        ISilo::{self, ISiloInstance},
-        ISiloConfig::{self, ISiloConfigInstance},
+        ISilo::{self},
+        ISiloConfig::{self},
         ISiloLens::ISiloLensInstance,
         LiquidationData, SharedAddressList, IERC20,
     },
     utils::{load_borrowers, percent_to_wei},
 };
-
-#[derive(Clone)]
-enum SolvencyMode {
-    Standard,
-    SimulatedPyth {
-        price_id: String,
-        price_feed: SharedPythPrice,
-    },
-}
-
-#[derive(Clone)]
-struct LiquidationContext<P: Provider + Clone + 'static> {
-    provider: P,
-    lens: ISiloLensInstance<P>,
-    helper: ILiquidationHelperInstance<P>,
-    silo_config: ISiloConfigInstance<P>,
-    config: SiloConfig,
-    hook: IHookReceiverInstance<P>,
-    silo: ISiloInstance<P>,
-    mode: SolvencyMode,
-    watchlist: Arc<RwLock<Vec<(Address, Address, Address)>>>,
-    blacklist: Arc<RwLock<HashSet<Address>>>,
-    borrowers: SharedAddressList,
-    fast_check_threshold: U256,
-    liquidation_threshold: U256,
-}
 
 const GET_USERS_HEALTH_BATCH_SIZE: usize = 50;
 const SAME_TOKEN_MULTIPLIER: u64 = 10;
@@ -90,6 +60,7 @@ where
     let watchlist = Arc::new(RwLock::new(Vec::new()));
     let blacklist = Arc::new(RwLock::new(HashSet::from([])));
     let shared_pyth_price: SharedPythPrice = Arc::new(RwLock::new(None));
+    let shared_chainlink_price: SharedChainlinkPrice = Arc::new(RwLock::new(None));
 
     let initial_borrowers = load_borrowers(&config.borrowers_file);
     if initial_borrowers.is_empty() {
@@ -137,7 +108,10 @@ where
             ctx.clone(),
             near_insolvency_check_millis,
         )),
-        tokio::spawn(chainlink_forward_listener(ctx.clone())),
+        tokio::spawn(chainlink_forward_listener_task(
+            ctx.clone(),
+            shared_chainlink_price,
+        )),
     ];
 
     match mode {
@@ -310,82 +284,6 @@ async fn solvency_monitor_task<P: Provider + Clone + 'static>(
                     ref price_id,
                     ref price_feed,
                 } => pyth_solvency(ctx.clone(), &price_id, &price_feed, borrower).await,
-            }
-        }
-    }
-}
-
-async fn chainlink_forward_listener<P>(ctx: LiquidationContext<P>)
-where
-    P: Provider + Clone + 'static,
-{
-    let sub = match ctx.provider.subscribe_full_pending_transactions().await {
-        Ok(sub) => sub,
-        Err(e) => {
-            error!("Failed to subscribe to pending transactions: {e}");
-            return;
-        }
-    };
-
-    let mut stream = sub.into_stream();
-
-    info!("Awaiting pending S/USDC Chainlink Forward transactions...");
-
-    while let Some(_tx) = stream.next().await {
-        let tx = _tx.into_inner();
-        info!("Pending transaction detected: {:?}", &tx.hash());
-        // forwarder address
-        if tx.to() == Some(address!("0xF2Ab88678d19E8c7D3d621177a901F7d476ad92b")) {
-            match forwardCall::abi_decode(&tx.input()) {
-                Ok(call) => {
-                    if call.to == address!("0x0BdbFF19543B20d0bc2d1eA08deE2be4C0b76743") {
-                        match transmitCall::abi_decode(&call.data) {
-                            Ok(transmit_call) => {
-                                info!(report = ?transmit_call.report, "Chainlink transmit call detected");
-                                match ReportDecode::abi_decode_params(&transmit_call.report) {
-                                    Ok(report) => {
-                                        let median_value =
-                                            report.observations[report.observations.len() / 2];
-                                        info!("Chainlink report S/USDC received: epoch = {}, median_value = {}", report.epoch, median_value);
-
-                                        match chainlink_is_borrower_solvent_simulated(
-                                            &ctx.provider,
-                                            ctx.config.silo_address,
-                                            address!("0xdec0000000000000000000000000000000000002"),
-                                            median_value,
-                                        )
-                                        .await
-                                        {
-                                            Ok(solvent) => {
-                                                if solvent {
-                                                    info!("Borrower is solvent after Chainlink simulation.");
-                                                } else {
-                                                    info!("Borrower is insolvent after Chainlink simulation.");
-                                                }
-                                            }
-                                            Err(e) => {
-                                                error!("Chainlink simulation failed: {e}");
-                                                continue;
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        warn!("Failed to decode Chainlink report: {e}");
-                                        continue;
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                warn!("Failed to decode transmit call: {e}");
-                                continue;
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!("Failed to decode transaction input: {e}");
-                    continue;
-                }
             }
         }
     }

@@ -1,3 +1,4 @@
+mod chainlink;
 mod config;
 mod hermes;
 mod oracle_simulator;

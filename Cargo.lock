@@ -3662,6 +3662,7 @@ dependencies = [
  "futures",
  "futures-util",
  "hex",
+ "once_cell",
  "reqwest",
  "rpassword",
  "serde",
