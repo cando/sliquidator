@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use alloy::primitives::Address;
 use serde::Deserialize;
 
-// Configuration struct for bot-wide constants
 #[derive(Debug, Clone, Deserialize)]
 pub struct SiloConfig {
     pub config_address: Address,
