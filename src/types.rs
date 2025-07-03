@@ -1,9 +1,48 @@
 use std::{collections::HashSet, sync::Arc};
 
-use alloy::{primitives::Address, sol};
+use alloy::{
+    primitives::{Address, U256},
+    providers::Provider,
+    sol,
+};
 use tokio::sync::RwLock;
 
+use crate::{
+    config::SiloConfig,
+    oracles::hermes::SharedPythPrice,
+    types::{
+        IHookReceiver::IHookReceiverInstance, ILiquidationHelper::ILiquidationHelperInstance,
+        ISilo::ISiloInstance, ISiloConfig::ISiloConfigInstance, ISiloLens::ISiloLensInstance,
+    },
+};
+
 pub type SharedAddressList = Arc<RwLock<HashSet<Address>>>;
+
+#[derive(Clone)]
+pub enum SolvencyMode {
+    Standard,
+    SimulatedPyth {
+        price_id: String,
+        price_feed: SharedPythPrice,
+    },
+}
+
+#[derive(Clone)]
+pub struct LiquidationContext<P: Provider + Clone + 'static> {
+    pub provider: P,
+    pub lens: ISiloLensInstance<P>,
+    pub helper: ILiquidationHelperInstance<P>,
+    pub silo_config: ISiloConfigInstance<P>,
+    pub config: SiloConfig,
+    pub hook: IHookReceiverInstance<P>,
+    pub silo: ISiloInstance<P>,
+    pub mode: SolvencyMode,
+    pub watchlist: Arc<RwLock<Vec<(Address, Address, Address)>>>,
+    pub blacklist: Arc<RwLock<HashSet<Address>>>,
+    pub borrowers: SharedAddressList,
+    pub fast_check_threshold: U256,
+    pub liquidation_threshold: U256,
+}
 
 sol! {
     #[derive(Debug)]

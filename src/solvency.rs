@@ -21,10 +21,12 @@ use tokio::{
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    chainlink::{chainlink_forward_listener_task, SharedChainlinkPrice},
-    config::{LiquidationContext, SiloConfig, SolvencyMode},
-    hermes::{hermes_price_feed_task, SharedPythPrice},
-    oracle_simulator::pyth_is_borrower_solvent_simulated,
+    config::SiloConfig,
+    oracles::{
+        chainlink::{chainlink_forward_listener_task, SharedChainlinkPrice},
+        hermes::{hermes_price_feed_task, SharedPythPrice},
+        simulator::pyth_is_borrower_solvent_simulated,
+    },
     types::{
         Borrower,
         IHookReceiver::{self},
@@ -32,7 +34,7 @@ use crate::{
         ISilo::{self},
         ISiloConfig::{self},
         ISiloLens::ISiloLensInstance,
-        LiquidationData, SharedAddressList, IERC20,
+        LiquidationContext, LiquidationData, SharedAddressList, SolvencyMode, IERC20,
     },
     utils::{load_borrowers, percent_to_wei},
 };

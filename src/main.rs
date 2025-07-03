@@ -1,7 +1,5 @@
-mod chainlink;
 mod config;
-mod hermes;
-mod oracle_simulator;
+mod oracles;
 mod solvency;
 mod types;
 mod utils;

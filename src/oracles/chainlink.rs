@@ -10,12 +10,10 @@ use futures::StreamExt;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
-use crate::{
-    config::LiquidationContext,
-    types::{
-        IChainlinkAggregator::{transmitCall, ReportDecode},
-        IChainlinkForwarder::forwardCall,
-    },
+use crate::types::{
+    IChainlinkAggregator::{transmitCall, ReportDecode},
+    IChainlinkForwarder::forwardCall,
+    LiquidationContext,
 };
 
 const CHAINLINK_FORWARDER_ADDRESS: Address = address!("0xF2Ab88678d19E8c7D3d621177a901F7d476ad92b");
