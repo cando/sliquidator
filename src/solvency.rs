@@ -43,7 +43,6 @@ use crate::{
 };
 
 const GET_USERS_HEALTH_BATCH_SIZE: usize = 50;
-const SAME_TOKEN_MULTIPLIER: u64 = 10;
 
 pub async fn run_solvency_monitor<P>(
     provider: P,
@@ -53,6 +52,7 @@ pub async fn run_solvency_monitor<P>(
     full_refresh_secs: u64,
     near_insolvency_check_millis: u64,
     fast_check_solvency_threshold: f64,
+    fast_check_solvency_threshold_same_token_percentage: f64,
 ) -> Vec<JoinHandle<()>>
 where
     P: Provider + Clone + 'static,
@@ -61,6 +61,8 @@ where
     let silo = ISilo::new(config.silo_address, provider.clone());
     let silo_config = ISiloConfig::new(config.config_address, provider.clone());
     let fast_check_threshold = percent_to_wei(fast_check_solvency_threshold);
+    let fast_check_threshold_same_token =
+        percent_to_wei(fast_check_solvency_threshold_same_token_percentage);
 
     let watchlist = Arc::new(RwLock::new(Vec::new()));
     let blacklist = Arc::new(RwLock::new(HashSet::from([])));
@@ -76,7 +78,7 @@ where
     let borrowers: SharedAddressList =
         Arc::new(RwLock::new(initial_borrowers.into_iter().collect()));
 
-    let mode = match &config.simulate_solvency_price_id {
+    let mode = match &config.simulate_pyth_solvency_price_id {
         Some(price_id) => SolvencyMode::SimulatedPyth {
             price_id: price_id.clone(),
             price_feed: shared_pyth_price,
@@ -103,6 +105,7 @@ where
         blacklist: blacklist.clone(),
         borrowers,
         fast_check_threshold,
+        fast_check_threshold_same_token,
         liquidation_threshold,
     };
 
@@ -168,9 +171,7 @@ async fn refresh_watchlist_task<P: Provider + Clone + 'static>(
                             if !bh.lt.is_zero() && !bh.ltv.is_zero() {
                                 if config_data.collateralConfig.token
                                     == config_data.debtConfig.token
-                                    && gap.saturating_mul(U256::from(SAME_TOKEN_MULTIPLIER))
-                                        > ctx.fast_check_threshold
-                                // this means we are checking for 1/SAME_TOKEN_MULTIPLIER of the threshold (e.g. 0.05% for 0.5% threshold)
+                                    && gap > ctx.fast_check_threshold_same_token
                                 {
                                     // Solvency check for same token borrow/lend is way slower, so
                                     // we check if the gap is small enough to warrant it

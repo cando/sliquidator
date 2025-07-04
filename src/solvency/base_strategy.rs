@@ -5,7 +5,10 @@ use alloy::{
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    solvency::common::{get_swap_data, liquidate_and_wait_for_receipt},
+    solvency::common::{
+        get_swap_data, liquidate_and_wait_for_receipt,
+        MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
+    },
     types::LiquidationContext,
 };
 
@@ -35,7 +38,11 @@ pub(crate) async fn base_solvency(
     }
 
     if !is_solvent
-        && liquidation.maxDebt < U256::from(ctx.config.min_amounts_for_liquidation[&debt_token])
+        && liquidation.maxDebt
+            < U256::from(
+                ctx.config.min_amounts_for_liquidation
+                    [MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX],
+            )
     {
         warn!(
             ?borrower,

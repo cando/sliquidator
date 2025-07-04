@@ -4,7 +4,7 @@ mod solvency;
 mod types;
 mod utils;
 
-use crate::config::{load_silo_configs, SiloConfig};
+use crate::config::{load_app_config, AppConfig, SiloConfig};
 use crate::solvency::run_solvency_monitor;
 use crate::types::ILiquidationHelper::ILiquidationHelperInstance;
 use crate::types::ISiloLens::ISiloLensInstance;
@@ -40,10 +40,6 @@ struct CliArgs {
     /// Path to silo config JSON file
     #[arg(long, default_value = "silos.json")]
     config: String,
-
-    // Fast check solvency threshold in percentage (default: 0.5%)
-    #[arg(long, default_value = "0.5")]
-    fast_check_solvency_threshold: f64,
 
     /// Log to console instead of file
     #[arg(long)]
@@ -113,7 +109,7 @@ async fn main() -> Result<()> {
         (None, None) => eyre::bail!("You must specify either --ipc or --rpc"),
     };
 
-    let silo_configs = load_silo_configs(&args.config)?;
+    let app_config = load_app_config(&args.config)?;
 
     let lens = ISiloLens::new(
         address!("925d5466d4d5b01995e20e1245924ada6415126a"),
@@ -129,15 +125,15 @@ async fn main() -> Result<()> {
     }
 
     let mut handles = vec![];
-    for silo in &silo_configs {
+    for silo in &app_config.silo_configs {
         info!("Starting solvency monitor for silo: {}", silo.silo_address);
         handles.push(
             spawn_tasks_for_silo(
+                &app_config,
                 silo.clone(),
                 provider.clone(),
                 lens.clone(),
                 helper.clone(),
-                args.fast_check_solvency_threshold,
             )
             .await,
         );
@@ -187,26 +183,26 @@ async fn handle_withdraw(
 }
 
 async fn spawn_tasks_for_silo<P>(
+    app_config: &AppConfig,
     silo_config: SiloConfig,
     provider: P,
     lens: ISiloLensInstance<P>,
     helper: ILiquidationHelperInstance<P>,
-    threshold: f64,
 ) -> Vec<JoinHandle<()>>
 where
     P: Provider + Clone + 'static,
 {
     let provider_for_watch = provider.clone();
-    let silo_config_for_watch = silo_config.clone();
 
     run_solvency_monitor(
         provider_for_watch,
         lens,
         helper,
-        silo_config_for_watch,
-        30,
-        20,
-        threshold,
+        silo_config,
+        app_config.all_borrowers_full_health_refresh_secs,
+        app_config.near_insolvency_check_millis,
+        app_config.fast_check_solvency_threshold_percentage,
+        app_config.fast_check_solvency_threshold_same_token_percentage,
     )
     .await
 }

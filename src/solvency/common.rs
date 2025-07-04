@@ -10,6 +10,9 @@ use tracing::{error, info};
 
 use crate::types::{LiquidationContext, LiquidationData};
 
+pub(crate) const MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX: usize = 0;
+pub(crate) const MIN_AMOUNT_FOR_LIQUIDATION_SIMULATED_STRATEGY_INDEX: usize = 1;
+
 pub(crate) async fn get_swap_data(
     ctx: &LiquidationContext<impl Provider + Clone + 'static>,
     collateral_token: Address,

@@ -1,49 +1,57 @@
-[
-    {
-        "_": "SIL00 (S) -  Market 20 (S/USDC)",
-        "config_address": "0x062A36Bbe0306c2Fd7aecdf25843291fBAB96AD2",
-        "silo_address": "0xf55902de87bd80c6a35614b48d7f8b612a083c12",
-        "hook_address": "0x6AAFD9Dd424541885fd79C06FDA96929CFD512f9",
-        "debt_token_address": "0xE5c066B23c7A97899646b0bbe69f3E8bc4b61C1C",
-        "borrowers_file": "dWs-20.csv",
-        "min_amounts_for_liquidation": {
-            "0x039e2fB66102314Ce7b64Ce5Ce3E5183bc94aD38": 1200000000000000000,
-            "0x29219dd400f2Bf60E5a23d13Be72B486D4038894": 500000
-        }
-    },
-    {
-        "_": "SIL01 (USDC) -  Market 20 (S/USDC)",
-        "config_address": "0x062A36Bbe0306c2Fd7aecdf25843291fBAB96AD2",
-        "silo_address": "0x322e1d5384aa4ED66AeCa770B95686271de61dc3",
-        "hook_address": "0x6AAFD9Dd424541885fd79C06FDA96929CFD512f9",
-        "debt_token_address": "0xbc4eF1B5453672a98073fbFF216966F5039ad256",
-        "borrowers_file": "dUSDC-20.csv",
-        "min_amounts_for_liquidation": {
-            "0x039e2fB66102314Ce7b64Ce5Ce3E5183bc94aD38": 1200000000000000000,
-            "0x29219dd400f2Bf60E5a23d13Be72B486D4038894": 500000
-        }
-    },
-    {
-        "_": "SIL01 (USDC) -  Market 8 (S/USDC)",
-        "config_address": "0x4915F6d3C9a7B20CedFc5d3854f2802f30311d13",
-        "silo_address": "0x4E216C15697C1392fE59e1014B009505E05810Df",
-        "hook_address": "0xB01e62Ba9BEc9Cfa24b2Ee321392b8Ce726D2A09",
-        "debt_token_address": "0xB1d70D54eC3caAfeCE8812111681d93A3C524875",
-        "borrowers_file": "dUSDC-8.csv",
-        "min_amounts_for_liquidation": {
-            "0x29219dd400f2Bf60E5a23d13Be72B486D4038894": 500000
-        }
-    },
-    {
-        "_": "SIL01 (USDC) -  Market 27 (Anon/USDC)",
-        "config_address": "0xaaF2F78f5eA77bF4EA150E869C54eEb73185a3BF",
-        "silo_address": "0x7e88AE5E50474A48deA4c42a634aA7485e7CaA62",
-        "hook_address": "0xddba71380230a3a5ab7094d9c774a6c5852a0ffc",
-        "debt_token_address": "0xdEf18A0a4b6c8E2E77547755c0d15b2448D6B710",
-        "borrowers_file": "dUSDC-27.csv",
-        "min_amounts_for_liquidation": {
-            "0x29219dd400f2Bf60E5a23d13Be72B486D4038894": 500000
+{
+    "fast_check_solvency_threshold_percentage": 0.5,
+    "fast_check_solvency_threshold_same_token_percentage": 0.05,
+    "all_borrowers_full_health_refresh_secs": 30,
+    "near_insolvency_check_millis": 20,
+    "silos": [
+        {
+            "_": "SIL00 (S) -  Market 20 (S/USDC)",
+            "config_address": "0x062A36Bbe0306c2Fd7aecdf25843291fBAB96AD2",
+            "silo_address": "0xf55902de87bd80c6a35614b48d7f8b612a083c12",
+            "hook_address": "0x6AAFD9Dd424541885fd79C06FDA96929CFD512f9",
+            "debt_token_address": "0xE5c066B23c7A97899646b0bbe69f3E8bc4b61C1C",
+            "borrowers_file": "dWs-20.csv",
+            "min_amounts_for_liquidation": [
+                1200000000000000000,
+                12000000000000000000
+            ]
         },
-        "simulate_solvency_price_id": "0x7a36855b8a4a6efd701ed82688694bbf67602de9faae509ae28f91065013cb82"
-    }
-]
+        {
+            "_": "SIL01 (USDC) -  Market 20 (S/USDC)",
+            "config_address": "0x062A36Bbe0306c2Fd7aecdf25843291fBAB96AD2",
+            "silo_address": "0x322e1d5384aa4ED66AeCa770B95686271de61dc3",
+            "hook_address": "0x6AAFD9Dd424541885fd79C06FDA96929CFD512f9",
+            "debt_token_address": "0xbc4eF1B5453672a98073fbFF216966F5039ad256",
+            "borrowers_file": "dUSDC-20.csv",
+            "min_amounts_for_liquidation": [
+                25000000,
+                250000000
+            ]
+        },
+        {
+            "_": "SIL01 (USDC) -  Market 8 (S/USDC)",
+            "config_address": "0x4915F6d3C9a7B20CedFc5d3854f2802f30311d13",
+            "silo_address": "0x4E216C15697C1392fE59e1014B009505E05810Df",
+            "hook_address": "0xB01e62Ba9BEc9Cfa24b2Ee321392b8Ce726D2A09",
+            "debt_token_address": "0xB1d70D54eC3caAfeCE8812111681d93A3C524875",
+            "borrowers_file": "dUSDC-8.csv",
+            "min_amounts_for_liquidation": [
+                25000000,
+                250000000
+            ]
+        },
+        {
+            "_": "SIL01 (USDC) -  Market 27 (Anon/USDC)",
+            "config_address": "0xaaF2F78f5eA77bF4EA150E869C54eEb73185a3BF",
+            "silo_address": "0x7e88AE5E50474A48deA4c42a634aA7485e7CaA62",
+            "hook_address": "0xddba71380230a3a5ab7094d9c774a6c5852a0ffc",
+            "debt_token_address": "0xdEf18A0a4b6c8E2E77547755c0d15b2448D6B710",
+            "borrowers_file": "dUSDC-27.csv",
+            "min_amounts_for_liquidation": [
+                25000000,
+                250000000
+            ],
+            "simulate_pyth_solvency_price_id": "0x7a36855b8a4a6efd701ed82688694bbf67602de9faae509ae28f91065013cb82"
+        }
+    ]
+}

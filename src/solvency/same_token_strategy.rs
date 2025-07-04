@@ -9,7 +9,10 @@ use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    solvency::common::{liquidate_and_wait_for_receipt, liquidate_no_debt_and_no_wait},
+    solvency::common::{
+        liquidate_and_wait_for_receipt, liquidate_no_debt_and_no_wait,
+        MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
+    },
     types::LiquidationContext,
 };
 
@@ -124,7 +127,12 @@ pub(crate) async fn same_token_solvency(
         debug!(%borrower, %ctx.config.silo_address, %current_ltv, %past_ltv, %delta_per_last_n_blocks, %delta_in_n_blocks,
         "Borrower is solvent, LTV is too low to liquidate. Simulated LTV: {}", delta_in_n_blocks + current_ltv);
     } else {
-        if liquidation.maxDebt < U256::from(ctx.config.min_amounts_for_liquidation[&debt_token]) {
+        if liquidation.maxDebt
+            < U256::from(
+                ctx.config.min_amounts_for_liquidation
+                    [MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX],
+            )
+        {
             warn!(
                 ?borrower,
                 "Same token borrower insolvent but below min debt threshold. Skipping."
