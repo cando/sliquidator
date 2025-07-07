@@ -60,7 +60,7 @@ pub(crate) async fn same_token_solvency(
         };
 
         let n_blocks_ago = 50;
-        let n_blocks_to_check = 5;
+        let n_blocks_to_check = 4;
         let delta_threshold = U256::from(50000000000 as u64);
 
         // Get the past LTV (block number - 100)
@@ -104,7 +104,7 @@ pub(crate) async fn same_token_solvency(
             );
 
             let mut liquidation_tentatives = 0;
-            while liquidation_tentatives < 10 {
+            while liquidation_tentatives < 11 {
                 liquidate_no_debt_and_no_wait(
                     ctx.clone(),
                     borrower,
@@ -114,7 +114,7 @@ pub(crate) async fn same_token_solvency(
                 )
                 .await;
 
-                sleep(Duration::from_millis(300)).await;
+                sleep(Duration::from_millis(200)).await;
                 liquidation_tentatives += 1;
                 // current block time in sonic is around 500-600ms.
                 // so trying 15 times with 300ms sleep it measn we cover ~ 5 seconds, which is more than
