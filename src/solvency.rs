@@ -12,6 +12,7 @@ use alloy::{
     rpc::types::Filter,
 };
 
+use chrono::Timelike;
 use futures::StreamExt;
 use tokio::{
     sync::RwLock,
@@ -201,6 +202,14 @@ async fn refresh_watchlist_task<P: Provider + Clone + 'static>(
         {
             let mut lock = ctx.watchlist.write().await;
             *lock = new_watchlist;
+
+            if chrono::Local::now().hour() == 1 && chrono::Local::now().minute() == 42 {
+                // I know this is a bit of a hack, but it works for now.
+                // Just clear the blacklist at 01:42 local time, every day, so we don't have stale addresses
+                info!("Clearing blacklist at 01:42 local time");
+                let mut blacklist_lock = ctx.blacklist.write().await;
+                blacklist_lock.clear();
+            }
         }
 
         sleep(Duration::from_secs(full_refresh_secs)).await;
