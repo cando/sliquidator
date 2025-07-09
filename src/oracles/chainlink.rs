@@ -8,7 +8,7 @@ use alloy::{
 };
 use futures::StreamExt;
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::types::{
     IChainlinkAggregator::{transmitCall, ReportDecode},
@@ -42,7 +42,7 @@ pub async fn chainlink_forward_listener_task<P>(
 
     while let Some(_tx) = stream.next().await {
         let tx = _tx.into_inner();
-        info!("Pending transaction detected: {:?}", &tx.hash());
+        debug!("Pending transaction detected: {:?}", &tx.hash());
         // forwarder address
         if tx.to() == Some(CHAINLINK_FORWARDER_ADDRESS) {
             match forwardCall::abi_decode(&tx.input()) {

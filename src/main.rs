@@ -125,7 +125,7 @@ async fn main() -> Result<()> {
     }
 
     let mut handles = vec![];
-    for silo in &app_config.silo_configs {
+    for silo in &app_config.silos {
         info!("Starting solvency monitor for silo: {}", silo.silo_address);
         handles.push(
             spawn_tasks_for_silo(

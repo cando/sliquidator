@@ -3,7 +3,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
-    pub silo_configs: Vec<SiloConfig>,
+    pub silos: Vec<SiloConfig>,
     pub fast_check_solvency_threshold_percentage: f64,
     pub fast_check_solvency_threshold_same_token_percentage: f64,
     pub all_borrowers_full_health_refresh_secs: u64,
