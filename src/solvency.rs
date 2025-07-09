@@ -73,6 +73,12 @@ where
     if initial_borrowers.is_empty() {
         error!("No borrowers loaded for silo {}", config.silo_address);
         return vec![];
+    } else {
+        info!(
+            "Loaded {} initial borrowers for silo {}",
+            initial_borrowers.len(),
+            config.silo_address
+        );
     }
 
     let borrowers: SharedAddressList =
@@ -201,6 +207,17 @@ async fn refresh_watchlist_task<P: Provider + Clone + 'static>(
     }
 }
 
+fn write_borrowers_to_file(path: &str, borrowers: &HashSet<Address>) {
+    let contents = borrowers
+        .iter()
+        .map(|addr| format!("{addr:#x}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    std::fs::write(path, contents)
+        .unwrap_or_else(|e| error!("Failed to write to borrowers file for {}: {e}", &path));
+}
+
 async fn borrower_listener_task<P>(ctx: LiquidationContext<P>)
 where
     P: Provider + Clone + 'static,
@@ -240,6 +257,8 @@ where
                                 "New borrower detected: {addr:#x}. Borrowers count: {}",
                                 list.len()
                             );
+
+                            write_borrowers_to_file(&ctx.config.borrowers_file, &list);
                         } else {
                             info!("Address {addr:#x} already in borrower list");
                         }
@@ -248,6 +267,8 @@ where
                         info!("Address {addr:#x} has zero balance, removing from borrowers");
                         let mut list = ctx.borrowers.write().await;
                         list.remove(&addr);
+
+                        write_borrowers_to_file(&ctx.config.borrowers_file, &list);
                     }
                     _ => {}
                 }
