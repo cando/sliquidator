@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use alloy::{
     consensus::Transaction,
-    primitives::{address, aliases::I192, Address},
+    primitives::{address, aliases::I192, Address, FixedBytes, Selector},
     providers::Provider,
     sol_types::{SolCall, SolValue},
 };
@@ -16,7 +16,6 @@ use crate::types::{
     LiquidationContext,
 };
 
-const CHAINLINK_FORWARDER_ADDRESS: Address = address!("0xF2Ab88678d19E8c7D3d621177a901F7d476ad92b");
 const CHAINLINK_AGGREGATOR_ADDRESS: Address =
     address!("0x0BdbFF19543B20d0bc2d1eA08deE2be4C0b76743");
 
@@ -36,15 +35,19 @@ pub async fn chainlink_forward_listener_task<P>(
         }
     };
 
+    let chainlink_forward_function_selector: Selector = FixedBytes::from_slice(&[
+        111, 173, 207, 114, // forward function selector
+    ]);
+
     let mut stream = sub.into_stream();
 
     info!("Awaiting pending S/USDC Chainlink Forward transactions...");
 
     while let Some(_tx) = stream.next().await {
         let tx = _tx.into_inner();
-        info!("Pending transaction detected: {:?}", &tx.hash());
+        debug!("Pending transaction detected: {:?}", &tx.hash());
         // forwarder address
-        if tx.to() == Some(CHAINLINK_FORWARDER_ADDRESS) {
+        if tx.function_selector() == Some(&chainlink_forward_function_selector) {
             match forwardCall::abi_decode(&tx.input()) {
                 Ok(call) => {
                     if call.to == CHAINLINK_AGGREGATOR_ADDRESS {
