@@ -1,7 +1,7 @@
-pub(crate) mod base_strategy;
 mod common;
 pub(crate) mod pyth_strategy;
 pub(crate) mod same_token_strategy;
+pub(crate) mod swap_strategy;
 
 use std::{collections::HashSet, sync::Arc};
 
@@ -28,8 +28,8 @@ use crate::{
         hermes::{hermes_price_feed_task, SharedPythPrice},
     },
     solvency::{
-        base_strategy::base_solvency, pyth_strategy::pyth_solvency,
-        same_token_strategy::same_token_solvency,
+        pyth_strategy::pyth_solvency, same_token_strategy::same_token_solvency,
+        swap_strategy::swap_solvency,
     },
     types::{
         Borrower,
@@ -38,7 +38,7 @@ use crate::{
         ISilo::{self},
         ISiloConfig::{self},
         ISiloLens::ISiloLensInstance,
-        LiquidationContext, SharedAddressList, SolvencyMode, IERC20,
+        LiquidationContext, OraclePriceData, SharedAddressList, IERC20,
     },
     utils::{load_borrowers, percent_to_wei},
 };
@@ -85,12 +85,14 @@ where
     let borrowers: SharedAddressList =
         Arc::new(RwLock::new(initial_borrowers.into_iter().collect()));
 
-    let mode = match &config.simulate_pyth_solvency_price_id {
-        Some(price_id) => SolvencyMode::SimulatedPyth {
+    let oracle_data = match &config.oracle {
+        crate::config::Oracle::Chainlink => OraclePriceData::Chainlink {
+            forwarded_price: shared_chainlink_price.clone(),
+        },
+        crate::config::Oracle::Pyth { price_id } => OraclePriceData::SimulatedPyth {
             price_id: price_id.clone(),
             price_feed: shared_pyth_price,
         },
-        None => SolvencyMode::Standard,
     };
 
     let liquidation_threshold = lens
@@ -107,7 +109,7 @@ where
         config: config.clone(),
         hook,
         silo,
-        mode: mode.clone(),
+        oracle_price_data: oracle_data.clone(),
         watchlist: watchlist.clone(),
         blacklist: blacklist.clone(),
         borrowers,
@@ -125,12 +127,12 @@ where
         )),
         tokio::spawn(chainlink_forward_listener_task(
             ctx.clone(),
-            shared_chainlink_price,
+            shared_chainlink_price.clone(),
         )),
     ];
 
-    match mode {
-        SolvencyMode::SimulatedPyth {
+    match oracle_data {
+        OraclePriceData::SimulatedPyth {
             price_id,
             price_feed,
         } => {
@@ -307,15 +309,24 @@ async fn solvency_monitor_task<P: Provider + Clone + 'static>(
                 continue;
             }
 
-            match ctx.mode {
-                SolvencyMode::Standard => {
+            match ctx.oracle_price_data {
+                OraclePriceData::Chainlink {
+                    ref forwarded_price,
+                } => {
                     if collateral_token == debt_token {
                         same_token_solvency(ctx.clone(), borrower, debt_token).await;
                     } else {
-                        base_solvency(ctx.clone(), borrower, debt_token, collateral_token).await;
+                        swap_solvency(
+                            ctx.clone(),
+                            borrower,
+                            debt_token,
+                            collateral_token,
+                            forwarded_price,
+                        )
+                        .await;
                     }
                 }
-                SolvencyMode::SimulatedPyth {
+                OraclePriceData::SimulatedPyth {
                     ref price_id,
                     ref price_feed,
                 } => pyth_solvency(ctx.clone(), &price_id, &price_feed, borrower).await,

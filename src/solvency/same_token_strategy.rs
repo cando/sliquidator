@@ -13,7 +13,7 @@ use crate::{
         liquidate_and_wait_for_receipt, liquidate_no_debt_and_no_wait,
         MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
     },
-    types::LiquidationContext,
+    types::{IHookReceiver::maxLiquidationReturn, LiquidationContext},
 };
 
 pub(crate) async fn same_token_solvency(
@@ -21,144 +21,163 @@ pub(crate) async fn same_token_solvency(
     borrower: Address,
     debt_token: Address,
 ) {
-    let multicall = ctx
+    let (liquidation, is_solvent) = match ctx
         .provider
         .multicall()
         .add(ctx.hook.maxLiquidation(borrower))
-        .add(ctx.silo.isSolvent(borrower));
-
-    let (liquidation, is_solvent) = match multicall.aggregate().await {
-        Ok(result) => result,
+        .add(ctx.silo.isSolvent(borrower))
+        .aggregate()
+        .await
+    {
+        Ok(res) => res,
         Err(e) => {
-            error!(?borrower, "Multicall failed: {e}");
+            error!(?borrower, "<same_token_solvency> multicall failed: {e}");
             return;
         }
     };
 
     if is_solvent {
-        // Get the current block number
-        let block_number = match ctx.provider.get_block_number().await {
-            Ok(num) => num,
-            Err(_) => {
-                error!(?borrower, "Failed to get current block number");
-                return;
-            }
-        };
-
-        // Get the current LTV
-        let current_ltv = match ctx
-            .lens
-            .getLtv(ctx.config.silo_address, borrower)
-            .call()
-            .await
-        {
-            Ok(ltv) => ltv,
-            Err(_) => {
-                error!(?borrower, "Failed to get current LTV");
-                return;
-            }
-        };
-
-        let n_blocks_ago = 50;
-        let n_blocks_to_check = 4;
-        let delta_threshold = U256::from(50000000000 as u64);
-
-        // Get the past LTV (block number - 100)
-        let past_ltv = match ctx
-            .lens
-            .getLtv(ctx.config.silo_address, borrower)
-            .block(BlockId::Number(BlockNumberOrTag::Number(
-                block_number - n_blocks_ago,
-            )))
-            .call()
-            .await
-        {
-            Ok(ltv) => ltv,
-            Err(_) => {
-                error!(?borrower, "Failed to get past LTV");
-                return;
-            }
-        };
-
-        // Calculate the delta and check if liquidation is necessary
-        let delta_per_last_n_blocks = current_ltv
-            .saturating_sub(past_ltv)
-            .div_ceil(U256::from(n_blocks_ago));
-        if delta_per_last_n_blocks > delta_threshold {
-            warn!(
-                %borrower,
-                %ctx.config.silo_address,
-                %delta_per_last_n_blocks,
-                "LTV delta per last {} blocks is too high, skipping",
-                n_blocks_ago,
-            );
-            return;
-        }
-
-        let delta_in_n_blocks =
-            delta_per_last_n_blocks.saturating_mul(U256::from(n_blocks_to_check));
-        if delta_in_n_blocks + current_ltv > ctx.liquidation_threshold {
-            info!(%borrower, %ctx.config.silo_address, %current_ltv, %past_ltv, %delta_per_last_n_blocks, %delta_in_n_blocks,
-                "🚨 Borrower is solvent, but LTV delta is high enough to start trying to liquidate. Simulated LTV: {}",
-                delta_in_n_blocks + current_ltv
-            );
-
-            let mut liquidation_tentatives = 0;
-            while liquidation_tentatives < 11 {
-                liquidate_no_debt_and_no_wait(
-                    ctx.clone(),
-                    borrower,
-                    debt_token,
-                    debt_token,
-                    Bytes::new(),
-                )
-                .await;
-
-                sleep(Duration::from_millis(200)).await;
-                liquidation_tentatives += 1;
-                // current block time in sonic is around 500-600ms.
-                // so trying 15 times with 300ms sleep it measn we cover ~ 5 seconds, which is more than
-                // the 5 blocks with simulated LTV
-            }
-
-            return;
-        }
-
-        debug!(%borrower, %ctx.config.silo_address, %current_ltv, %past_ltv, %delta_per_last_n_blocks, %delta_in_n_blocks,
-        "Borrower is solvent, LTV is too low to liquidate. Simulated LTV: {}", delta_in_n_blocks + current_ltv);
+        try_ltv_projection_liquidation(&ctx, borrower, debt_token).await;
     } else {
-        if liquidation.maxDebt
-            < U256::from(
-                ctx.config.min_amounts_for_liquidation
-                    [MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX],
-            )
-        {
-            warn!(
-                ?borrower,
-                "Same token borrower insolvent but below min debt threshold. Skipping."
-            );
-            ctx.watchlist
-                .write()
-                .await
-                .retain(|(w, _, _)| *w != borrower);
+        try_direct_same_token_liquidation(&ctx, borrower, debt_token, liquidation).await;
+    }
+}
+
+async fn try_ltv_projection_liquidation<P: Provider + Clone + 'static>(
+    ctx: &LiquidationContext<P>,
+    borrower: Address,
+    token: Address,
+) {
+    let block_number = match ctx.provider.get_block_number().await {
+        Ok(n) => n,
+        Err(_) => {
+            error!(?borrower, "Failed to get current block number");
             return;
         }
+    };
 
+    let current_ltv = match ctx
+        .lens
+        .getLtv(ctx.config.silo_address, borrower)
+        .call()
+        .await
+    {
+        Ok(ltv) => ltv,
+        Err(_) => {
+            error!(?borrower, "Failed to get current LTV");
+            return;
+        }
+    };
+
+    let n_blocks_ago = 50;
+    let n_blocks_to_check = 4;
+    let delta_threshold = U256::from(50_000_000_000u64);
+
+    let past_ltv = match ctx
+        .lens
+        .getLtv(ctx.config.silo_address, borrower)
+        .block(BlockId::Number(BlockNumberOrTag::Number(
+            block_number - n_blocks_ago,
+        )))
+        .call()
+        .await
+    {
+        Ok(ltv) => ltv,
+        Err(_) => {
+            error!(?borrower, "Failed to get past LTV");
+            return;
+        }
+    };
+
+    let delta_per_block = current_ltv
+        .saturating_sub(past_ltv)
+        .div_ceil(U256::from(n_blocks_ago));
+
+    if delta_per_block > delta_threshold {
+        warn!(
+            %borrower,
+            %ctx.config.silo_address,
+            %delta_per_block,
+            "LTV delta per block exceeds threshold → skipping simulation"
+        );
+        return;
+    }
+
+    let projected_delta = delta_per_block.saturating_mul(U256::from(n_blocks_to_check));
+    let projected_ltv = projected_delta + current_ltv;
+
+    if projected_ltv > ctx.liquidation_threshold {
         info!(
-            ?borrower,
-            "🚨 Same token Borrower is (already) insolvent → preparing liquidation"
+            %borrower,
+            %ctx.config.silo_address,
+            %current_ltv,
+            %past_ltv,
+            %delta_per_block,
+            %projected_ltv,
+            "🚨 Simulated LTV exceeds threshold → executing proactive liquidations"
         );
 
-        let swap_data = Bytes::new(); // No swap needed for same token liquidation
+        attempt_multiple_liquidations(ctx, borrower, token).await;
+    } else {
+        debug!(
+            %borrower,
+            %ctx.config.silo_address,
+            %current_ltv,
+            %past_ltv,
+            %delta_per_block,
+            %projected_ltv,
+            "Borrower solvent → simulated LTV not high enough to liquidate"
+        );
+    }
+}
 
-        liquidate_and_wait_for_receipt(
-            ctx.clone(),
-            borrower,
-            debt_token,
-            debt_token,
-            swap_data,
-            liquidation.maxDebt,
-        )
-        .await;
+async fn try_direct_same_token_liquidation<P: Provider + Clone + 'static>(
+    ctx: &LiquidationContext<P>,
+    borrower: Address,
+    token: Address,
+    liquidation: maxLiquidationReturn,
+) {
+    let max_debt = liquidation.maxDebt;
+    let threshold = U256::from(
+        ctx.config.min_amounts_for_liquidation[MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX],
+    );
+
+    if max_debt < threshold {
+        warn!(
+            ?borrower,
+            "Already insolvent but debt < threshold → skipping"
+        );
+        ctx.watchlist
+            .write()
+            .await
+            .retain(|(w, _, _)| *w != borrower);
+        return;
+    }
+
+    info!(?borrower, max_debt = %max_debt, "🚨 Already insolvent → executing standard liquidation");
+
+    liquidate_and_wait_for_receipt(
+        ctx.clone(),
+        borrower,
+        token,
+        token, // no swap
+        Bytes::new(),
+        max_debt,
+    )
+    .await;
+}
+
+async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
+    ctx: &LiquidationContext<P>,
+    borrower: Address,
+    token: Address,
+) {
+    // current block time in sonic is around 500-600ms.
+    // so trying 11 times with 300ms sleep it measn we cover ~ 3-4 seconds, which is more than
+    // the 5 blocks with simulated LTV
+    for _ in 0..11 {
+        liquidate_no_debt_and_no_wait(ctx.clone(), borrower, token, token, Bytes::new()).await;
+
+        sleep(Duration::from_millis(200)).await;
     }
 }

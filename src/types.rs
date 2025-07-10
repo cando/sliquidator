@@ -9,7 +9,7 @@ use tokio::sync::RwLock;
 
 use crate::{
     config::SiloConfig,
-    oracles::hermes::SharedPythPrice,
+    oracles::{chainlink::SharedChainlinkPrice, hermes::SharedPythPrice},
     types::{
         IHookReceiver::IHookReceiverInstance, ILiquidationHelper::ILiquidationHelperInstance,
         ISilo::ISiloInstance, ISiloConfig::ISiloConfigInstance, ISiloLens::ISiloLensInstance,
@@ -19,8 +19,10 @@ use crate::{
 pub type SharedAddressList = Arc<RwLock<HashSet<Address>>>;
 
 #[derive(Clone)]
-pub enum SolvencyMode {
-    Standard,
+pub enum OraclePriceData {
+    Chainlink {
+        forwarded_price: SharedChainlinkPrice,
+    },
     SimulatedPyth {
         price_id: String,
         price_feed: SharedPythPrice,
@@ -36,7 +38,7 @@ pub struct LiquidationContext<P: Provider + Clone + 'static> {
     pub config: SiloConfig,
     pub hook: IHookReceiverInstance<P>,
     pub silo: ISiloInstance<P>,
-    pub mode: SolvencyMode,
+    pub oracle_price_data: OraclePriceData,
     pub watchlist: Arc<RwLock<Vec<(Address, Address, Address)>>>,
     pub blacklist: Arc<RwLock<HashSet<Address>>>,
     pub borrowers: SharedAddressList,

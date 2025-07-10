@@ -17,8 +17,7 @@ pub(crate) async fn pyth_solvency(
 ) {
     if let Some(p) = &*price_feed.read().await {
         match pyth_is_borrower_solvent_simulated(
-            &ctx.provider,
-            ctx.config.silo_address,
+            &ctx,
             borrower,
             p.publish_time,
             p.expo,
@@ -27,7 +26,7 @@ pub(crate) async fn pyth_solvency(
         )
         .await
         {
-            Ok(solvent) => {
+            Ok((solvent, _max_debt)) => {
                 if solvent {
                     info!(?borrower, "Still solvent after Pyth simulation.");
                     return;

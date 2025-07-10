@@ -9,6 +9,13 @@ pub struct AppConfig {
     pub all_borrowers_full_health_refresh_secs: u64,
     pub near_insolvency_check_millis: u64,
 }
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(tag = "type", content = "config")]
+pub enum Oracle {
+    Chainlink,
+    Pyth { price_id: String },
+}
 #[derive(Debug, Clone, Deserialize)]
 pub struct SiloConfig {
     pub config_address: Address,
@@ -16,8 +23,8 @@ pub struct SiloConfig {
     pub hook_address: Address,
     pub debt_token_address: Address,
     pub borrowers_file: String,
+    pub oracle: Oracle,
     pub min_amounts_for_liquidation: Vec<u64>, // [amount_base_solvency_tier, amount_simulated_solvency_tier]
-    pub simulate_pyth_solvency_price_id: Option<String>,
 }
 
 pub fn load_app_config(path: &str) -> eyre::Result<AppConfig> {

@@ -2,44 +2,34 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use alloy::{
     eips::BlockId,
-    network::TransactionBuilder,
-    primitives::{aliases::I192, Address, Bytes, FixedBytes, Signed, U256},
+    primitives::{aliases::I192, Address, FixedBytes, Signed, U256},
     providers::Provider,
-    rpc::types::{
-        state::{StateOverride, StateOverridesBuilder},
-        TransactionRequest,
-    },
-    sol_types::SolCall,
+    rpc::types::state::{StateOverride, StateOverridesBuilder},
 };
 use once_cell::sync::Lazy;
 
-use crate::types::ISiloLens::isSolventCall;
+use crate::types::LiquidationContext;
 use hex::FromHex;
 
 async fn is_borrower_solvent_simulated<P>(
-    provider: &P,
-    silo: Address,
+    ctx: &LiquidationContext<P>,
     borrower: Address,
     state_override: StateOverride,
-) -> eyre::Result<bool>
+) -> eyre::Result<(bool, U256)>
 where
     P: Provider + Clone + 'static,
 {
-    // ABI call encoding
-    let call = isSolventCall { borrower };
-
-    let result = provider
-        .call(
-            TransactionRequest::default()
-                .with_to(silo)
-                .with_input(Bytes::from(call.abi_encode())),
-        )
+    let multicall = ctx
+        .provider
+        .multicall()
+        .add(ctx.hook.maxLiquidation(borrower))
+        .add(ctx.silo.isSolvent(borrower))
         .overrides(state_override)
-        .block(BlockId::Number(alloy::eips::BlockNumberOrTag::Latest))
-        .await?;
+        .block(BlockId::Number(alloy::eips::BlockNumberOrTag::Latest));
 
-    Ok(isSolventCall::abi_decode_returns(&result)
-        .map_err(|_| eyre::eyre!("Failed to decode isSolvent return value"))?)
+    let (liquidation, is_solvent) = multicall.aggregate().await?;
+
+    Ok((is_solvent, liquidation.maxDebt))
 }
 
 // ✅ Obtaining and manipulating storage for testing Chainlink OCR2Aggregator behavior:
@@ -110,11 +100,10 @@ static TRANSMISSIONS_SLOT: Lazy<FixedBytes<32>> = Lazy::new(|| {
 });
 
 pub async fn chainlink_is_borrower_solvent_simulated<P>(
-    provider: &P,
-    silo: Address,
+    ctx: &LiquidationContext<P>,
     borrower: Address,
     price: Signed<192, 3>,
-) -> eyre::Result<bool>
+) -> eyre::Result<(bool, U256)>
 where
     P: Provider + Clone + 'static,
 {
@@ -129,7 +118,7 @@ where
         .with_state_diff(*S_USDC_CHAINLINK_ADDRESS, storage_overrides)
         .build();
 
-    is_borrower_solvent_simulated(provider, silo, borrower, state_override).await
+    is_borrower_solvent_simulated(ctx, borrower, state_override).await
 }
 
 // Static Pyth price storage slot (hardcoded for ANON/USDC)
@@ -147,14 +136,13 @@ static PYTH_ORACLE_ADDRESS: Lazy<Address> = Lazy::new(|| {
 });
 
 pub async fn pyth_is_borrower_solvent_simulated<P>(
-    provider: &P,
-    silo: Address,
+    ctx: &LiquidationContext<P>,
     borrower: Address,
     publish_time: u64,
     expo: i32,
     price: i64,
     conf: u64,
-) -> eyre::Result<bool>
+) -> eyre::Result<(bool, U256)>
 where
     P: Provider + Clone + 'static,
 {
@@ -167,7 +155,7 @@ where
         .with_state_diff(*PYTH_ORACLE_ADDRESS, storage_overrides)
         .build();
 
-    is_borrower_solvent_simulated(provider, silo, borrower, state_override).await
+    is_borrower_solvent_simulated(ctx, borrower, state_override).await
 }
 
 /// Encodes the ChainLink Trasmission struct into Solidity's packed storage layout for slot 0.
