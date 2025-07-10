@@ -16,7 +16,7 @@
                 12000000000000000000
             ],
             "oracle": {
-                "type": "chainlink"
+                "type": "Chainlink"
             }
         },
         {
@@ -31,7 +31,7 @@
                 250000000
             ],
             "oracle": {
-                "type": "chainlink"
+                "type": "Chainlink"
             }
         },
         {
@@ -46,7 +46,7 @@
                 250000000
             ],
             "oracle": {
-                "type": "chainlink"
+                "type": "Chainlink"
             }
         }
     ]

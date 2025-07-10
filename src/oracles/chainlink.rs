@@ -42,7 +42,7 @@ pub async fn chainlink_forward_listener_task<P>(
 
     while let Some(_tx) = stream.next().await {
         let tx = _tx.into_inner();
-        debug!("Pending transaction detected: {:?}", &tx.hash());
+        info!("Pending transaction detected: {:?}", &tx.hash());
         // forwarder address
         if tx.to() == Some(CHAINLINK_FORWARDER_ADDRESS) {
             match forwardCall::abi_decode(&tx.input()) {
@@ -50,37 +50,14 @@ pub async fn chainlink_forward_listener_task<P>(
                     if call.to == CHAINLINK_AGGREGATOR_ADDRESS {
                         match transmitCall::abi_decode(&call.data) {
                             Ok(transmit_call) => {
-                                info!(report = ?transmit_call.report, "Chainlink transmit call detected");
+                                debug!(report = ?transmit_call.report, "Chainlink transmit call detected");
                                 match ReportDecode::abi_decode_params(&transmit_call.report) {
                                     Ok(report) => {
                                         let median_value =
                                             report.observations[report.observations.len() / 2];
                                         info!("Chainlink report S/USDC received: epoch = {}, median_value = {}", report.epoch, median_value);
-                                        {
-                                            let mut w = shared_price.write().await;
-                                            *w = Some(median_value.clone());
-                                        }
-
-                                        // match chainlink_is_borrower_solvent_simulated(
-                                        //     &ctx.provider,
-                                        //     ctx.config.silo_address,
-                                        //     address!("0xdec0000000000000000000000000000000000002"),
-                                        //     median_value,
-                                        // )
-                                        // .await
-                                        // {
-                                        //     Ok(solvent) => {
-                                        //         if solvent {
-                                        //             info!("Borrower is solvent after Chainlink simulation.");
-                                        //         } else {
-                                        //             info!("Borrower is insolvent after Chainlink simulation.");
-                                        //         }
-                                        //     }
-                                        //     Err(e) => {
-                                        //         error!("Chainlink simulation failed: {e}");
-                                        //         continue;
-                                        //     }
-                                        // }
+                                        let mut w = shared_price.write().await;
+                                        *w = Some(median_value.clone());
                                     }
                                     Err(e) => {
                                         warn!("Failed to decode Chainlink report: {e}");
