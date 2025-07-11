@@ -48,7 +48,7 @@ const GET_USERS_HEALTH_BATCH_SIZE: usize = 50;
 pub async fn run_solvency_monitor<P>(
     provider: P,
     lens: ISiloLensInstance<P>,
-    helper: ILiquidationHelperInstance<P>,
+    helper: Vec<ILiquidationHelperInstance<P>>,
     config: SiloConfig,
     full_refresh_secs: u64,
     near_insolvency_check_millis: u64,
@@ -104,7 +104,7 @@ where
     let ctx = LiquidationContext {
         provider,
         lens,
-        helper,
+        helpers: helper,
         silo_config,
         config: config.clone(),
         hook,

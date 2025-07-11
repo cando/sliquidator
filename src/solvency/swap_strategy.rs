@@ -129,7 +129,7 @@ async fn try_direct_liquidation<P: Provider + Clone + 'static>(
     info!(?borrower, max_debt = %max_debt, "🚨 Borrower is insolvent → proceeding with direct liquidation.");
 
     let swap_data = get_swap_data(
-        ctx,
+        &ctx.helpers[0].clone(),
         collateral_token,
         debt_token,
         liquidation.collateralToLiquidate,
@@ -138,6 +138,7 @@ async fn try_direct_liquidation<P: Provider + Clone + 'static>(
 
     liquidate_and_wait_for_receipt(
         ctx.clone(),
+        ctx.helpers[0].clone(),
         borrower,
         debt_token,
         collateral_token,
@@ -155,14 +156,22 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
     max_debt_to_cover: U256,
     collateral_to_liquidate: U256,
 ) {
-    // current block time in sonic is around 500-600ms.
-    // so trying 10 times with 100ms sleep it measn we cover ~ 1 seconds,
-    // which is ~ 2 blocks where we hope to catch the chainlink Forward transaction
-    let swap_data = get_swap_data(ctx, collateral_token, debt_token, collateral_to_liquidate).await;
+    let num_helpers = ctx.helpers.len();
 
-    for _ in 0..10 {
+    for i in 0..5 {
+        let helper = ctx.helpers[i % num_helpers].clone();
+
+        let swap_data = get_swap_data(
+            &helper,
+            collateral_token,
+            debt_token,
+            collateral_to_liquidate,
+        )
+        .await;
+
         liquidate_no_wait(
             ctx.clone(),
+            helper,
             borrower,
             debt_token,
             collateral_token,
@@ -171,6 +180,6 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
         )
         .await;
 
-        sleep(Duration::from_millis(100)).await;
+        sleep(Duration::from_millis(50)).await;
     }
 }

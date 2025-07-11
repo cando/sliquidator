@@ -1,7 +1,6 @@
 use std::fs;
 
 use alloy::primitives::{Address, U256};
-use rpassword::prompt_password;
 
 pub fn load_borrowers(file_path: &str) -> Vec<Address> {
     let content = fs::read_to_string(file_path)
@@ -20,14 +19,6 @@ pub fn load_borrowers(file_path: &str) -> Vec<Address> {
             }
         })
         .collect()
-}
-
-pub fn read_private_key_from_console() -> eyre::Result<String> {
-    let key = prompt_password("Enter your private key (0x...): ")?;
-    if key.trim().is_empty() {
-        eyre::bail!("Private key cannot be empty.");
-    }
-    Ok(key.trim().to_owned())
 }
 
 pub fn read_private_key_from_file(path: &str) -> eyre::Result<String> {

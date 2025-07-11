@@ -9,7 +9,7 @@ use crate::solvency::run_solvency_monitor;
 use crate::types::ILiquidationHelper::ILiquidationHelperInstance;
 use crate::types::ISiloLens::ISiloLensInstance;
 use crate::types::{ILiquidationHelper, ISiloLens};
-use crate::utils::{read_private_key_from_console, read_private_key_from_file};
+use crate::utils::read_private_key_from_file;
 
 use alloy::primitives::address;
 use alloy::providers::{Provider, ProviderBuilder};
@@ -46,8 +46,8 @@ struct CliArgs {
     log_console: bool,
 
     /// Path to private key file (default: read from console)
-    #[arg(long)]
-    private_key_file: Option<String>,
+    #[arg(long, value_name = "FILES", num_args = 1.., use_value_delimiter = true)]
+    private_key_files: Vec<String>,
 
     #[arg(long, value_name = "ADDRESS")]
     withdraw_token: Option<String>,
@@ -78,50 +78,53 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    let private_key = if let Some(file_path) = args.private_key_file {
-        if !file_path.is_empty() {
-            tracing::debug!("Reading private key from file: {}", file_path);
-            read_private_key_from_file(&file_path)?
-        } else {
-            read_private_key_from_console()?
-        }
-    } else {
-        read_private_key_from_console()?
-    };
+    let mut provider_pool = Vec::new();
 
-    let signer = private_key.parse::<PrivateKeySigner>()?;
+    for file_path in &args.private_key_files {
+        let private_key = read_private_key_from_file(file_path)?;
+        let signer = private_key.parse::<PrivateKeySigner>()?;
 
-    let provider = match (args.ipc, args.rpc) {
-        (Some(ipc_path), _) => {
-            ProviderBuilder::new()
-                .wallet(signer)
-                .with_simple_nonce_management()
-                .connect(&ipc_path)
-                .await?
-        }
-        (_, Some(rpc_url)) => {
-            ProviderBuilder::new()
-                .wallet(signer)
-                .with_simple_nonce_management()
-                .connect(&rpc_url)
-                .await?
-        }
-        (None, None) => eyre::bail!("You must specify either --ipc or --rpc"),
-    };
+        let provider = match (args.ipc.clone(), args.rpc.clone()) {
+            (Some(ipc), _) => {
+                ProviderBuilder::new()
+                    .wallet(signer.clone())
+                    .with_simple_nonce_management()
+                    .connect(&ipc)
+                    .await?
+            }
+            (_, Some(rpc)) => {
+                ProviderBuilder::new()
+                    .wallet(signer.clone())
+                    .with_simple_nonce_management()
+                    .connect(&rpc)
+                    .await?
+            }
+            _ => eyre::bail!("You must specify --ipc or --rpc"),
+        };
+
+        provider_pool.push(provider);
+    }
 
     let app_config = load_app_config(&args.config)?;
 
     let lens = ISiloLens::new(
         address!("925d5466d4d5b01995e20e1245924ada6415126a"),
-        provider.clone(),
-    );
-    let helper = ILiquidationHelper::new(
-        address!("dead000000000000000000000000000000000007"),
-        provider.clone(),
+        provider_pool[0].clone(),
     );
 
+    // prepare a set of helpers for each provider, for each private key
+    let helpers = provider_pool
+        .iter()
+        .map(|provider| {
+            ILiquidationHelper::new(
+                address!("dead000000000000000000000000000000000007"),
+                provider.clone(),
+            )
+        })
+        .collect::<Vec<_>>();
+
     if let Some(withdraw_token) = args.withdraw_token {
-        return handle_withdraw(helper, withdraw_token).await;
+        return handle_withdraw(helpers[0].clone(), withdraw_token).await;
     }
 
     let mut handles = vec![];
@@ -131,9 +134,9 @@ async fn main() -> Result<()> {
             spawn_tasks_for_silo(
                 &app_config,
                 silo.clone(),
-                provider.clone(),
+                provider_pool[0].clone(),
                 lens.clone(),
-                helper.clone(),
+                helpers.clone(),
             )
             .await,
         );
@@ -187,7 +190,7 @@ async fn spawn_tasks_for_silo<P>(
     silo_config: SiloConfig,
     provider: P,
     lens: ISiloLensInstance<P>,
-    helper: ILiquidationHelperInstance<P>,
+    helper: Vec<ILiquidationHelperInstance<P>>,
 ) -> Vec<JoinHandle<()>>
 where
     P: Provider + Clone + 'static,

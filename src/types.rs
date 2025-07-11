@@ -33,7 +33,7 @@ pub enum OraclePriceData {
 pub struct LiquidationContext<P: Provider + Clone + 'static> {
     pub provider: P,
     pub lens: ISiloLensInstance<P>,
-    pub helper: ILiquidationHelperInstance<P>,
+    pub helpers: Vec<ILiquidationHelperInstance<P>>,
     pub silo_config: ISiloConfigInstance<P>,
     pub config: SiloConfig,
     pub hook: IHookReceiverInstance<P>,

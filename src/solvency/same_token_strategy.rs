@@ -158,6 +158,7 @@ async fn try_direct_same_token_liquidation<P: Provider + Clone + 'static>(
 
     liquidate_and_wait_for_receipt(
         ctx.clone(),
+        ctx.helpers[0].clone(),
         borrower,
         token,
         token, // no swap
@@ -172,11 +173,24 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
     borrower: Address,
     token: Address,
 ) {
+    let num_helpers = ctx.helpers.len();
+
     // current block time in sonic is around 500-600ms.
     // so trying 5 times with 500ms sleep it measn we cover ~ 3 seconds, which is more than
     // the 5 blocks with simulated LTV
-    for _ in 0..5 {
-        liquidate_no_wait(ctx.clone(), borrower, token, token, None, Bytes::new()).await;
+    for i in 0..5 {
+        let helper = ctx.helpers[i % num_helpers].clone();
+
+        liquidate_no_wait(
+            ctx.clone(),
+            helper,
+            borrower,
+            token,
+            token,
+            None,
+            Bytes::new(),
+        )
+        .await;
 
         sleep(Duration::from_millis(600)).await;
     }

@@ -8,17 +8,22 @@ use alloy::{
 use eyre::eyre;
 use tracing::{error, info};
 
-use crate::types::{LiquidationContext, LiquidationData};
+use crate::types::{
+    ILiquidationHelper::ILiquidationHelperInstance, LiquidationContext, LiquidationData,
+};
 
 pub(crate) const MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX: usize = 0;
 pub(crate) const MIN_AMOUNT_FOR_LIQUIDATION_SIMULATED_STRATEGY_INDEX: usize = 1;
 
-pub(crate) async fn get_swap_data(
-    ctx: &LiquidationContext<impl Provider + Clone + 'static>,
+pub(crate) async fn get_swap_data<P>(
+    helper: &ILiquidationHelperInstance<P>,
     collateral_token: Address,
     debt_token: Address,
     collateral_to_liquidate: U256,
-) -> Bytes {
+) -> Bytes
+where
+    P: Provider + Clone + 'static,
+{
     if collateral_token != debt_token {
         let amount_for_swap = collateral_to_liquidate * U256::from(995) / U256::from(1000);
 
@@ -27,7 +32,7 @@ pub(crate) async fn get_swap_data(
                 tokenIn: collateral_token,
                 tokenOut: debt_token,
                 tickSpacing: I24::unchecked_from(50),
-                recipient: *ctx.helper.address(),
+                recipient: *helper.address(),
                 deadline: U256::from(
                     SystemTime::now()
                         .duration_since(UNIX_EPOCH)
@@ -49,6 +54,7 @@ pub(crate) async fn get_swap_data(
 
 pub(crate) async fn liquidate_and_wait_for_receipt<P>(
     ctx: LiquidationContext<P>,
+    helper: ILiquidationHelperInstance<P>,
     borrower: Address,
     debt_token: Address,
     collateral_token: Address,
@@ -62,8 +68,7 @@ where
     let tx: alloy::contract::CallBuilder<
         &P,
         std::marker::PhantomData<crate::types::ILiquidationHelper::executeLiquidationCall>,
-    > = ctx
-        .helper
+    > = helper
         .executeLiquidation(
             ctx.config.silo_address,
             debt_token,
@@ -106,16 +111,19 @@ where
     }
 }
 
-pub(crate) async fn liquidate_no_wait(
-    ctx: LiquidationContext<impl Provider + Clone + 'static>,
+pub(crate) async fn liquidate_no_wait<P>(
+    ctx: LiquidationContext<P>,
+    helper: ILiquidationHelperInstance<P>,
     borrower: Address,
     debt_token: Address,
     collateral_token: Address,
     max_debt: Option<U256>,
     swap_data: Bytes,
-) {
+) where
+    P: Provider + Clone + 'static,
+{
     let liquidation_call = if let Some(max_debt_to_cover) = max_debt {
-        ctx.helper
+        helper
             .executeLiquidation(
                 ctx.config.silo_address,
                 debt_token,
@@ -133,7 +141,7 @@ pub(crate) async fn liquidate_no_wait(
             .send()
             .await
     } else {
-        ctx.helper
+        helper
             .executeLiquidationBlind(
                 ctx.config.silo_address,
                 ctx.config.hook_address,
