@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use alloy::{
-    primitives::{Address, Bytes, U256},
+    primitives::{Address, U256},
     providers::Provider,
 };
 use tokio::time::sleep;
@@ -12,7 +12,7 @@ use crate::{
         chainlink::SharedChainlinkPrice, simulator::chainlink_is_borrower_solvent_simulated,
     },
     solvency::common::{
-        get_swap_data, liquidate_and_wait_for_receipt, liquidate_no_debt_and_no_wait,
+        get_swap_data, liquidate_and_wait_for_receipt, liquidate_no_wait,
         MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
         MIN_AMOUNT_FOR_LIQUIDATION_SIMULATED_STRATEGY_INDEX,
     },
@@ -31,6 +31,9 @@ pub(crate) async fn swap_solvency(
         .multicall()
         .add(ctx.hook.maxLiquidation(borrower))
         .add(ctx.silo.isSolvent(borrower))
+        .block(alloy::eips::BlockId::Number(
+            alloy::eips::BlockNumberOrTag::Latest,
+        ))
         .aggregate()
         .await
     {
@@ -68,10 +71,10 @@ async fn try_proactive_simulated_liquidation<P: Provider + Clone + 'static>(
     };
 
     match chainlink_is_borrower_solvent_simulated(ctx, borrower, price).await {
-        Ok((true, _)) => {
+        Ok((true, _, _)) => {
             debug!(?borrower, "Still solvent in simulation. Skipping.");
         }
-        Ok((false, max_debt)) => {
+        Ok((false, max_debt, collateral_to_liquidate)) => {
             debug!(?borrower, max_debt = %max_debt, "Insolvent in simulation.");
 
             let min_threshold = U256::from(
@@ -83,7 +86,15 @@ async fn try_proactive_simulated_liquidation<P: Provider + Clone + 'static>(
                 info!(?borrower, max_debt = %max_debt, next_price = %price,
                       "🚨 Simulated insolvency above threshold. Attempting proactive liquidation.");
 
-                attempt_multiple_liquidations(ctx, borrower, debt_token, collateral_token).await;
+                attempt_multiple_liquidations(
+                    ctx,
+                    borrower,
+                    debt_token,
+                    collateral_token,
+                    max_debt,
+                    collateral_to_liquidate,
+                )
+                .await;
             } else {
                 debug!(?borrower, max_debt = %max_debt, "Simulated insolvency but below threshold. Skipping.");
             }
@@ -141,17 +152,22 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
     borrower: Address,
     debt_token: Address,
     collateral_token: Address,
+    max_debt_to_cover: U256,
+    collateral_to_liquidate: U256,
 ) {
     // current block time in sonic is around 500-600ms.
     // so trying 10 times with 100ms sleep it measn we cover ~ 1 seconds,
     // which is ~ 2 blocks where we hope to catch the chainlink Forward transaction
+    let swap_data = get_swap_data(ctx, collateral_token, debt_token, collateral_to_liquidate).await;
+
     for _ in 0..10 {
-        liquidate_no_debt_and_no_wait(
+        liquidate_no_wait(
             ctx.clone(),
             borrower,
             debt_token,
             collateral_token,
-            Bytes::new(),
+            Some(max_debt_to_cover),
+            swap_data.clone(),
         )
         .await;
 

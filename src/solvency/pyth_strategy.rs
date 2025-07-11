@@ -26,7 +26,7 @@ pub(crate) async fn pyth_solvency(
         )
         .await
         {
-            Ok((solvent, _max_debt)) => {
+            Ok((solvent, _max_debt, _)) => {
                 if solvent {
                     info!(?borrower, "Still solvent after Pyth simulation.");
                     return;

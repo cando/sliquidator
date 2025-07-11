@@ -15,7 +15,7 @@ async fn is_borrower_solvent_simulated<P>(
     ctx: &LiquidationContext<P>,
     borrower: Address,
     state_override: StateOverride,
-) -> eyre::Result<(bool, U256)>
+) -> eyre::Result<(bool, U256, U256)>
 where
     P: Provider + Clone + 'static,
 {
@@ -29,7 +29,11 @@ where
 
     let (liquidation, is_solvent) = multicall.aggregate().await?;
 
-    Ok((is_solvent, liquidation.maxDebt))
+    Ok((
+        is_solvent,
+        liquidation.maxDebt,
+        liquidation.collateralToLiquidate,
+    ))
 }
 
 // ✅ Obtaining and manipulating storage for testing Chainlink OCR2Aggregator behavior:
@@ -103,7 +107,7 @@ pub async fn chainlink_is_borrower_solvent_simulated<P>(
     ctx: &LiquidationContext<P>,
     borrower: Address,
     price: Signed<192, 3>,
-) -> eyre::Result<(bool, U256)>
+) -> eyre::Result<(bool, U256, U256)>
 where
     P: Provider + Clone + 'static,
 {
@@ -142,7 +146,7 @@ pub async fn pyth_is_borrower_solvent_simulated<P>(
     expo: i32,
     price: i64,
     conf: u64,
-) -> eyre::Result<(bool, U256)>
+) -> eyre::Result<(bool, U256, U256)>
 where
     P: Provider + Clone + 'static,
 {

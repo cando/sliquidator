@@ -76,7 +76,8 @@ where
             swap_data,
         )
         .gas(5_000_000u64)
-        .gas_price(65_000_000_000u128);
+        .max_fee_per_gas(65_000_000_000u128)
+        .max_priority_fee_per_gas(65_000_000_000u128);
 
     match async {
         let pending_tx = tx.send().await?;
@@ -105,31 +106,52 @@ where
     }
 }
 
-pub(crate) async fn liquidate_no_debt_and_no_wait(
+pub(crate) async fn liquidate_no_wait(
     ctx: LiquidationContext<impl Provider + Clone + 'static>,
     borrower: Address,
     debt_token: Address,
     collateral_token: Address,
+    max_debt: Option<U256>,
     swap_data: Bytes,
 ) {
-    match ctx
-        .helper
-        .executeLiquidationBlind(
-            ctx.config.silo_address,
-            ctx.config.hook_address,
-            debt_token,
-            LiquidationData {
-                hook: ctx.config.hook_address,
-                collateralAsset: collateral_token,
-                borrower,
-            },
-            swap_data,
-        )
-        .gas(5_000_000u64)
-        .gas_price(65_000_000_000u128)
-        .send()
-        .await
-    {
+    let liquidation_call = if let Some(max_debt_to_cover) = max_debt {
+        ctx.helper
+            .executeLiquidation(
+                ctx.config.silo_address,
+                debt_token,
+                max_debt_to_cover,
+                LiquidationData {
+                    hook: ctx.config.hook_address,
+                    collateralAsset: collateral_token,
+                    borrower,
+                },
+                swap_data,
+            )
+            .gas(5_000_000u64)
+            .max_fee_per_gas(65_000_000_000u128)
+            .max_priority_fee_per_gas(65_000_000_000u128)
+            .send()
+            .await
+    } else {
+        ctx.helper
+            .executeLiquidationBlind(
+                ctx.config.silo_address,
+                ctx.config.hook_address,
+                debt_token,
+                LiquidationData {
+                    hook: ctx.config.hook_address,
+                    collateralAsset: collateral_token,
+                    borrower,
+                },
+                swap_data,
+            )
+            .gas(5_000_000u64)
+            .max_fee_per_gas(65_000_000_000u128)
+            .max_priority_fee_per_gas(65_000_000_000u128)
+            .send()
+            .await
+    };
+    match liquidation_call {
         Ok(pending_tx) => {
             info!(
                 ?borrower,

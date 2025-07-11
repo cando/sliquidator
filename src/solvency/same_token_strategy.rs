@@ -10,7 +10,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     solvency::common::{
-        liquidate_and_wait_for_receipt, liquidate_no_debt_and_no_wait,
+        liquidate_and_wait_for_receipt, liquidate_no_wait,
         MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
     },
     types::{IHookReceiver::maxLiquidationReturn, LiquidationContext},
@@ -173,11 +173,11 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
     token: Address,
 ) {
     // current block time in sonic is around 500-600ms.
-    // so trying 11 times with 300ms sleep it measn we cover ~ 3-4 seconds, which is more than
+    // so trying 5 times with 500ms sleep it measn we cover ~ 3 seconds, which is more than
     // the 5 blocks with simulated LTV
-    for _ in 0..11 {
-        liquidate_no_debt_and_no_wait(ctx.clone(), borrower, token, token, Bytes::new()).await;
+    for _ in 0..5 {
+        liquidate_no_wait(ctx.clone(), borrower, token, token, None, Bytes::new()).await;
 
-        sleep(Duration::from_millis(200)).await;
+        sleep(Duration::from_millis(600)).await;
     }
 }
