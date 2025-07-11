@@ -27,7 +27,7 @@ pub async fn chainlink_forward_listener_task<P>(
 ) where
     P: Provider + Clone + 'static,
 {
-    let sub = match ctx.provider.subscribe_full_pending_transactions().await {
+    let sub = match ctx.provider.subscribe_pending_transactions().await {
         Ok(sub) => sub,
         Err(e) => {
             error!("Failed to subscribe to pending transactions: {e}");
@@ -43,41 +43,43 @@ pub async fn chainlink_forward_listener_task<P>(
 
     info!("Awaiting pending S/USDC Chainlink Forward transactions...");
 
-    while let Some(_tx) = stream.next().await {
-        let tx = _tx.into_inner();
-        debug!("Pending transaction detected: {:?}", &tx.hash());
-        // forwarder address
-        if tx.function_selector() == Some(&chainlink_forward_function_selector) {
-            match forwardCall::abi_decode(&tx.input()) {
-                Ok(call) => {
-                    if call.to == CHAINLINK_AGGREGATOR_ADDRESS {
-                        match transmitCall::abi_decode(&call.data) {
-                            Ok(transmit_call) => {
-                                debug!(report = ?transmit_call.report, "Chainlink transmit call detected");
-                                match ReportDecode::abi_decode_params(&transmit_call.report) {
-                                    Ok(report) => {
-                                        let median_value =
-                                            report.observations[report.observations.len() / 2];
-                                        info!("Chainlink report S/USDC received: epoch = {}, median_value = {}", report.epoch, median_value);
-                                        let mut w = shared_price.write().await;
-                                        *w = Some(median_value.clone());
-                                    }
-                                    Err(e) => {
-                                        warn!("Failed to decode Chainlink report: {e}");
-                                        continue;
+    while let Some(tx_hash) = stream.next().await {
+        if let Ok(Some(_tx)) = ctx.provider.get_transaction_by_hash(tx_hash).await {
+            let tx = _tx.into_inner();
+            debug!("Pending transaction detected: {:?}", &tx.hash());
+            // forwarder address
+            if tx.function_selector() == Some(&chainlink_forward_function_selector) {
+                match forwardCall::abi_decode(&tx.input()) {
+                    Ok(call) => {
+                        if call.to == CHAINLINK_AGGREGATOR_ADDRESS {
+                            match transmitCall::abi_decode(&call.data) {
+                                Ok(transmit_call) => {
+                                    debug!(report = ?transmit_call.report, "Chainlink transmit call detected");
+                                    match ReportDecode::abi_decode_params(&transmit_call.report) {
+                                        Ok(report) => {
+                                            let median_value =
+                                                report.observations[report.observations.len() / 2];
+                                            info!("Chainlink report S/USDC received: epoch = {}, median_value = {}", report.epoch, median_value);
+                                            let mut w = shared_price.write().await;
+                                            *w = Some(median_value.clone());
+                                        }
+                                        Err(e) => {
+                                            warn!("Failed to decode Chainlink report: {e}");
+                                            continue;
+                                        }
                                     }
                                 }
-                            }
-                            Err(e) => {
-                                warn!("Failed to decode transmit call: {e}");
-                                continue;
+                                Err(e) => {
+                                    warn!("Failed to decode transmit call: {e}");
+                                    continue;
+                                }
                             }
                         }
                     }
-                }
-                Err(e) => {
-                    warn!("Failed to decode transaction input: {e}");
-                    continue;
+                    Err(e) => {
+                        warn!("Failed to decode transaction input: {e}");
+                        continue;
+                    }
                 }
             }
         }
