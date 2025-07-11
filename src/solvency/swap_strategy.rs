@@ -180,6 +180,6 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
         )
         .await;
 
-        sleep(Duration::from_millis(50)).await;
+        sleep(Duration::from_millis(20)).await;
     }
 }
