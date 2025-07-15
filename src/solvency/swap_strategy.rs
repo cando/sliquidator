@@ -65,12 +65,12 @@ async fn try_proactive_simulated_liquidation<P: Provider + Clone + 'static>(
     collateral_token: Address,
     forwarded_price: &SharedChainlinkPrice,
 ) {
-    let Some(price) = *forwarded_price.read().await else {
+    let Some(price_data) = *forwarded_price.read().await else {
         debug!(?borrower, "Solvent now, but no forward price available.");
         return;
     };
 
-    match chainlink_is_borrower_solvent_simulated(ctx, borrower, price).await {
+    match chainlink_is_borrower_solvent_simulated(ctx, borrower, price_data.price).await {
         Ok((true, _, _)) => {
             debug!(?borrower, "Still solvent in simulation. Skipping.");
         }
@@ -83,7 +83,7 @@ async fn try_proactive_simulated_liquidation<P: Provider + Clone + 'static>(
             );
 
             if max_debt >= min_threshold {
-                info!(?borrower, max_debt = %max_debt, next_price = %price,
+                info!(?borrower, max_debt = %max_debt, next_price = %price_data.price,
                       "🚨 Simulated insolvency above threshold. Attempting proactive liquidation.");
 
                 attempt_multiple_liquidations(
@@ -93,6 +93,8 @@ async fn try_proactive_simulated_liquidation<P: Provider + Clone + 'static>(
                     collateral_token,
                     max_debt,
                     collateral_to_liquidate,
+                    price_data.max_priority_fee_per_gas,
+                    price_data.max_fee_per_gas,
                 )
                 .await;
             } else {
@@ -155,6 +157,8 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
     collateral_token: Address,
     max_debt_to_cover: U256,
     collateral_to_liquidate: U256,
+    max_priority_fee_per_gas: Option<u128>,
+    max_fee_per_gas: u128,
 ) {
     let num_helpers = ctx.helpers.len();
 
@@ -177,9 +181,18 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
             collateral_token,
             Some(max_debt_to_cover),
             swap_data.clone(),
+            max_priority_fee_per_gas,
+            max_fee_per_gas,
         )
         .await;
 
         sleep(Duration::from_millis(20)).await;
     }
+
+    // Remove the borrower from the watchlist after attempting liquidations
+    // in order to avoid repeated attempts
+    ctx.watchlist
+        .write()
+        .await
+        .retain(|(w, _, _)| *w != borrower);
 }

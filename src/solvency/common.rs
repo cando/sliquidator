@@ -119,6 +119,8 @@ pub(crate) async fn liquidate_no_wait<P>(
     collateral_token: Address,
     max_debt: Option<U256>,
     swap_data: Bytes,
+    max_priority_fee_per_gas: Option<u128>,
+    max_fee_per_gas: u128,
 ) where
     P: Provider + Clone + 'static,
 {
@@ -136,8 +138,8 @@ pub(crate) async fn liquidate_no_wait<P>(
                 swap_data,
             )
             .gas(5_000_000u64)
-            .max_fee_per_gas(65_000_000_000u128)
-            .max_priority_fee_per_gas(65_000_000_000u128)
+            .max_fee_per_gas(max_fee_per_gas)
+            .max_priority_fee_per_gas(max_priority_fee_per_gas.unwrap_or(65_000_000_000u128))
             .send()
             .await
     } else {
@@ -154,8 +156,8 @@ pub(crate) async fn liquidate_no_wait<P>(
                 swap_data,
             )
             .gas(5_000_000u64)
-            .max_fee_per_gas(65_000_000_000u128)
-            .max_priority_fee_per_gas(65_000_000_000u128)
+            .max_fee_per_gas(max_fee_per_gas)
+            .max_priority_fee_per_gas(max_priority_fee_per_gas.unwrap_or(65_000_000_000u128))
             .send()
             .await
     };

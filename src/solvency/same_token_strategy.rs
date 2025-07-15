@@ -189,6 +189,8 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
             token,
             None,
             Bytes::new(),
+            None,
+            65_000_000_000u128, // default max fee per gas
         )
         .await;
 

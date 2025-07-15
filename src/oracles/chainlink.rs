@@ -6,6 +6,7 @@ use alloy::{
     providers::Provider,
     sol_types::{SolCall, SolValue},
 };
+
 use futures::StreamExt;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
@@ -19,7 +20,14 @@ use crate::types::{
 const CHAINLINK_AGGREGATOR_ADDRESS: Address =
     address!("0x0BdbFF19543B20d0bc2d1eA08deE2be4C0b76743");
 
-pub type SharedChainlinkPrice = Arc<RwLock<Option<I192>>>;
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ChainLinkPriceData {
+    pub price: I192,
+    pub max_priority_fee_per_gas: Option<u128>,
+    pub max_fee_per_gas: u128,
+}
+
+pub type SharedChainlinkPrice = Arc<RwLock<Option<ChainLinkPriceData>>>;
 
 pub async fn chainlink_forward_listener_task<P>(
     ctx: LiquidationContext<P>,
@@ -61,7 +69,12 @@ pub async fn chainlink_forward_listener_task<P>(
                                                 report.observations[report.observations.len() / 2];
                                             info!("Chainlink report S/USDC received: epoch = {}, median_value = {}", report.epoch, median_value);
                                             let mut w = shared_price.write().await;
-                                            *w = Some(median_value.clone());
+                                            *w = Some(ChainLinkPriceData {
+                                                price: median_value.clone(),
+                                                max_priority_fee_per_gas: tx
+                                                    .max_priority_fee_per_gas(),
+                                                max_fee_per_gas: tx.max_fee_per_gas(),
+                                            });
                                         }
                                         Err(e) => {
                                             warn!("Failed to decode Chainlink report: {e}");
