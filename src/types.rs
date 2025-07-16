@@ -1,7 +1,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use alloy::{
-    primitives::{Address, U256},
+    primitives::{Address, FixedBytes, U256},
     providers::Provider,
     sol,
 };
@@ -23,9 +23,10 @@ pub enum OraclePriceData {
     Chainlink {
         forwarded_price: SharedChainlinkPrice,
     },
-    SimulatedPyth {
+    Pyth {
         price_id: String,
         price_feed: SharedPythPrice,
+        slot_0: FixedBytes<32>,
     },
 }
 
@@ -142,6 +143,15 @@ sol! {
         ) returns (
             uint256 withdrawnCollateral,
             uint256 repaidDebt
+        );
+
+        function updatePythPriceFeedsAndExecuteLiquidation(
+            address silo,
+            address debtAsset,
+            uint256 maxDebtToCover,
+            LiquidationData liquidation,
+            bytes swapData,
+            bytes[] priceUpdate,
         );
     }
 

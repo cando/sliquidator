@@ -48,6 +48,24 @@
             "oracle": {
                 "type": "Chainlink"
             }
+        },
+        {
+            "_": "SIL01 (USDC) -  Market 49 (X33/USDC)",
+            "config_address": "0x18555e17A97974A07841F652E45263b9CE8AD369",
+            "silo_address": "0xa18a8f100f2c976044f2f84fae1eE9f807Ae7893",
+            "hook_address": "0x3c00091c591666d75ec5dd96ace5545c9d48cef3",
+            "debt_token_address": "0x14cc2Edb64479083CCe9669E3299f32429a47B96",
+            "borrowers_file": "dUSDC-49.csv",
+            "min_amounts_for_liquidation": [
+                2500000
+            ],
+            "oracle": {
+                "type": "pyth",
+                "config": {
+                    "price_id": "0x6f02ad2b8a307411fc3baedb9876e83efe9fa9f5b752aab8c99f4742c9e5f5d5",
+                    "slot0": "0x22f9d87a4a3e234e3d8b5208a9e4c0fdb99218b58e5fb060ac733b4da9f06dab"
+                }
+            }
         }
     ]
 }

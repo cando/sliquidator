@@ -65,11 +65,64 @@ where
     P: Provider + Clone + 'static,
 {
     info!(collateral_token = ?collateral_token, debt_token = ?debt_token, ?borrower, "🚀 Sending liquidation tx...");
-    let tx: alloy::contract::CallBuilder<
-        &P,
-        std::marker::PhantomData<crate::types::ILiquidationHelper::executeLiquidationCall>,
-    > = helper
+    let tx = helper
         .executeLiquidation(
+            ctx.config.silo_address,
+            debt_token,
+            max_debt,
+            LiquidationData {
+                hook: ctx.config.hook_address,
+                collateralAsset: collateral_token,
+                borrower,
+            },
+            swap_data,
+        )
+        .gas(5_000_000u64)
+        .max_fee_per_gas(65_000_000_000u128)
+        .max_priority_fee_per_gas(65_000_000_000u128);
+
+    match async {
+        let pending_tx = tx.send().await?;
+        let receipt = pending_tx.get_receipt().await?;
+        if !receipt.status() {
+            return Err(eyre!("Transaction reverted"));
+        }
+        Ok(receipt)
+    }
+    .await
+    {
+        Ok(receipt) => {
+            info!(?receipt.block_number, %borrower, "✅ Tx succeeded");
+            ctx.watchlist
+                .write()
+                .await
+                .retain(|(w, _, _)| *w != borrower);
+            return true;
+        }
+        Err(e) => {
+            error!(?borrower, "❌ Liquidation tx failed: {e}");
+            ctx.blacklist.write().await.insert(borrower);
+
+            return false;
+        }
+    }
+}
+
+pub(crate) async fn update_pyth_price_then_liquidate_and_wait_for_receipt<P>(
+    ctx: LiquidationContext<P>,
+    helper: ILiquidationHelperInstance<P>,
+    borrower: Address,
+    debt_token: Address,
+    collateral_token: Address,
+    swap_data: Bytes,
+    max_debt: U256,
+) -> bool
+where
+    P: Provider + Clone + 'static,
+{
+    info!(collateral_token = ?collateral_token, debt_token = ?debt_token, ?borrower, "🚀 Sending Pyth liquidation tx...");
+    let tx = helper
+        .updatePythPriceFeedsAndExecuteLiquidation(
             ctx.config.silo_address,
             debt_token,
             max_debt,

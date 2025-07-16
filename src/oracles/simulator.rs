@@ -125,13 +125,6 @@ where
     is_borrower_solvent_simulated(ctx, borrower, state_override).await
 }
 
-// Static Pyth price storage slot (hardcoded for ANON/USDC)
-static PYTH_SLOT0: Lazy<FixedBytes<32>> = Lazy::new(|| {
-    "0x586baa15fa17b0fbbc6939b28eb3223994dfa95a07202f334b47673e00596743"
-        .parse()
-        .expect("valid storage slot")
-});
-
 // Static Pyth Oracle address (ANON/USDC)
 static PYTH_ORACLE_ADDRESS: Lazy<Address> = Lazy::new(|| {
     "0x2880aB155794e7179c9eE2e38200202908C17B43"
@@ -146,6 +139,7 @@ pub async fn pyth_is_borrower_solvent_simulated<P>(
     expo: i32,
     price: i64,
     conf: u64,
+    slot_0: &FixedBytes<32>,
 ) -> eyre::Result<(bool, U256, U256)>
 where
     P: Provider + Clone + 'static,
@@ -153,7 +147,7 @@ where
     let encoded = encode_priceinfo_slot0(publish_time, expo, price, conf);
     let value = FixedBytes::<32>::from_slice(&encoded);
 
-    let storage_overrides = vec![(*PYTH_SLOT0, value)];
+    let storage_overrides = vec![(*slot_0, value)];
 
     let state_override = StateOverridesBuilder::default()
         .with_state_diff(*PYTH_ORACLE_ADDRESS, storage_overrides)

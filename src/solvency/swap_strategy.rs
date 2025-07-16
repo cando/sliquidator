@@ -120,7 +120,7 @@ async fn try_direct_liquidation<P: Provider + Clone + 'static>(
     );
 
     if max_debt < base_threshold {
-        warn!(?borrower, max_debt = %max_debt, "Insolvent but below base threshold. Skipping.");
+        warn!(?borrower, %ctx.config.silo_address, max_debt = %max_debt, "Insolvent but below base threshold. Skipping.");
         ctx.watchlist
             .write()
             .await

@@ -30,6 +30,8 @@ contract LiquidationHelper is IERC3156FlashBorrower {
 
     address public immutable EXCHANGE_PROXY;
 
+    address payable public immutable PYTH_AGGREGATOR;
+
     uint256 private transient _withdrawCollateral;
     uint256 private transient _repayDebtAssets;
 
@@ -42,7 +44,8 @@ contract LiquidationHelper is IERC3156FlashBorrower {
     constructor (
         address _nativeToken,
         address _exchangeProxy,
-        address payable _tokensReceiver
+        address payable _tokensReceiver,
+        address payable _pyth_aggregator
     ) {
         require(_nativeToken != address(0), ZeroAddress());
         require(_exchangeProxy != address(0), ZeroAddress());
@@ -51,6 +54,7 @@ contract LiquidationHelper is IERC3156FlashBorrower {
         NATIVE_TOKEN = _nativeToken;
         EXCHANGE_PROXY = _exchangeProxy;
         TOKENS_RECEIVER = _tokensReceiver;
+        PYTH_AGGREGATOR = IPyth(_pyth_aggregator);
     }
 
     receive() external payable {}
@@ -81,6 +85,23 @@ contract LiquidationHelper is IERC3156FlashBorrower {
 
         withdrawCollateral = _withdrawCollateral;
         repayDebtAssets = _repayDebtAssets;
+    }
+
+    function updatePythPriceFeedsAndExecuteLiquidation(
+        ISilo _flashLoanFrom,
+        address _debtAsset,
+        uint256 _maxDebtToCover,
+        ILiquidationHelper.LiquidationData calldata _liquidation,
+        bytes calldata _swapsInputs,
+        bytes[] calldata priceUpdate
+    ) external {
+        require(_maxDebtToCover != 0, NoDebtToCover());
+
+        uint fee = pyth.getUpdateFee(priceUpdate);
+        PYTH_AGGREGATOR.updatePriceFeeds{ value: fee }(priceUpdate);
+
+        _flashLoanFrom.flashLoan(this, _debtAsset, _maxDebtToCover, abi.encode(_liquidation, _swapsInputs));
+        IERC20(_debtAsset).forceApprove(address(_flashLoanFrom), 0);
     }
 
     /// @dev entry point for liquidation without specifying max debt to cover

@@ -1,4 +1,4 @@
-use alloy::primitives::Address;
+use alloy::primitives::{Address, FixedBytes};
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -14,7 +14,10 @@ pub struct AppConfig {
 #[serde(tag = "type", content = "config")]
 pub enum Oracle {
     Chainlink,
-    Pyth { price_id: String },
+    Pyth {
+        price_id: String,
+        slot_0: FixedBytes<32>,
+    },
 }
 #[derive(Debug, Clone, Deserialize)]
 pub struct SiloConfig {

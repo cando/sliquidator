@@ -89,9 +89,10 @@ where
         crate::config::Oracle::Chainlink => OraclePriceData::Chainlink {
             forwarded_price: shared_chainlink_price.clone(),
         },
-        crate::config::Oracle::Pyth { price_id } => OraclePriceData::SimulatedPyth {
+        crate::config::Oracle::Pyth { price_id, slot_0 } => OraclePriceData::Pyth {
             price_id: price_id.clone(),
             price_feed: shared_pyth_price,
+            slot_0: *slot_0,
         },
     };
 
@@ -132,9 +133,10 @@ where
     ];
 
     match oracle_data {
-        OraclePriceData::SimulatedPyth {
+        OraclePriceData::Pyth {
             price_id,
             price_feed,
+            ..
         } => {
             handles.push(tokio::spawn(hermes_price_feed_task(
                 vec![price_id],
@@ -309,13 +311,13 @@ async fn solvency_monitor_task<P: Provider + Clone + 'static>(
                 continue;
             }
 
-            match ctx.oracle_price_data {
-                OraclePriceData::Chainlink {
-                    ref forwarded_price,
-                } => {
-                    if collateral_token == debt_token {
-                        same_token_solvency(ctx.clone(), borrower, debt_token).await;
-                    } else {
+            if collateral_token == debt_token {
+                same_token_solvency(ctx.clone(), borrower, debt_token).await;
+            } else {
+                match ctx.oracle_price_data {
+                    OraclePriceData::Chainlink {
+                        ref forwarded_price,
+                    } => {
                         swap_solvency(
                             ctx.clone(),
                             borrower,
@@ -325,11 +327,22 @@ async fn solvency_monitor_task<P: Provider + Clone + 'static>(
                         )
                         .await;
                     }
+                    OraclePriceData::Pyth {
+                        ref price_feed,
+                        ref slot_0,
+                        ..
+                    } => {
+                        pyth_solvency(
+                            ctx.clone(),
+                            debt_token,
+                            collateral_token,
+                            &price_feed,
+                            borrower,
+                            slot_0,
+                        )
+                        .await
+                    }
                 }
-                OraclePriceData::SimulatedPyth {
-                    ref price_id,
-                    ref price_feed,
-                } => pyth_solvency(ctx.clone(), &price_id, &price_feed, borrower).await,
             }
         }
     }
