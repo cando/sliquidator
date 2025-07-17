@@ -117,7 +117,7 @@ async fn main() -> Result<()> {
         .iter()
         .map(|provider| {
             ILiquidationHelper::new(
-                address!("dead000000000000000000000000000000000007"),
+                address!("dead000000000000000000000000000000000003"),
                 provider.clone(),
             )
         })

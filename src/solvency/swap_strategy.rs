@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use alloy::{
-    primitives::{Address, U256},
+    primitives::{Address, Bytes, FixedBytes, U256},
     providers::Provider,
 };
 use tokio::time::sleep;
@@ -9,14 +9,17 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     oracles::{
-        chainlink::SharedChainlinkPrice, simulator::chainlink_is_borrower_solvent_simulated,
+        chainlink::SharedChainlinkPrice,
+        hermes::SharedPythPrice,
+        simulator::{chainlink_is_borrower_solvent_simulated, pyth_is_borrower_solvent_simulated},
     },
     solvency::common::{
         get_swap_data, liquidate_and_wait_for_receipt, liquidate_no_wait,
+        update_pyth_price_then_liquidate_and_wait_for_receipt,
         MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
         MIN_AMOUNT_FOR_LIQUIDATION_SIMULATED_STRATEGY_INDEX,
     },
-    types::{IHookReceiver::maxLiquidationReturn, LiquidationContext},
+    types::{IHookReceiver::maxLiquidationReturn, LiquidationContext, OraclePriceData},
 };
 
 pub(crate) async fn swap_solvency(
@@ -24,7 +27,6 @@ pub(crate) async fn swap_solvency(
     borrower: Address,
     debt_token: Address,
     collateral_token: Address,
-    forwarded_price: &SharedChainlinkPrice,
 ) {
     let (liquidation, is_solvent) = match ctx
         .provider
@@ -45,20 +47,41 @@ pub(crate) async fn swap_solvency(
     };
 
     if is_solvent {
-        try_proactive_simulated_liquidation(
-            &ctx,
-            borrower,
-            debt_token,
-            collateral_token,
-            forwarded_price,
-        )
-        .await;
+        match ctx.oracle_price_data {
+            OraclePriceData::Chainlink {
+                ref forwarded_price,
+            } => {
+                try_chainlink_simulated_liquidation(
+                    &ctx,
+                    borrower,
+                    debt_token,
+                    collateral_token,
+                    forwarded_price,
+                )
+                .await;
+            }
+            OraclePriceData::Pyth {
+                ref price_feed,
+                ref slot_0,
+                ..
+            } => {
+                try_pyth_simulated_liquidation(
+                    ctx.clone(),
+                    debt_token,
+                    collateral_token,
+                    &price_feed,
+                    borrower,
+                    slot_0,
+                )
+                .await
+            }
+        }
     } else {
         try_direct_liquidation(&ctx, borrower, debt_token, collateral_token, liquidation).await;
     }
 }
 
-async fn try_proactive_simulated_liquidation<P: Provider + Clone + 'static>(
+async fn try_chainlink_simulated_liquidation<P: Provider + Clone + 'static>(
     ctx: &LiquidationContext<P>,
     borrower: Address,
     debt_token: Address,
@@ -104,6 +127,85 @@ async fn try_proactive_simulated_liquidation<P: Provider + Clone + 'static>(
         Err(e) => {
             error!(?borrower, "Simulation failed: {e}");
         }
+    }
+}
+
+pub(crate) async fn try_pyth_simulated_liquidation(
+    ctx: LiquidationContext<impl Provider + Clone + 'static>,
+    debt_token: Address,
+    collateral_token: Address,
+    price_feed: &SharedPythPrice,
+    borrower: Address,
+    slot_0: &FixedBytes<32>,
+) {
+    if let Some(p) = &*price_feed.read().await {
+        match pyth_is_borrower_solvent_simulated(
+            &ctx,
+            borrower,
+            p.0.publish_time,
+            p.0.expo,
+            p.0.price,
+            p.0.conf,
+            slot_0,
+        )
+        .await
+        {
+            Ok((solvent, max_debt, collateral_to_liquidate)) => {
+                if solvent {
+                    debug!(?borrower, "Still solvent after Pyth simulation.");
+                    return;
+                } else {
+                    let base_threshold = U256::from(
+                        ctx.config.min_amounts_for_liquidation
+                            [MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX],
+                    );
+
+                    if max_debt < base_threshold {
+                        warn!(?borrower, %ctx.config.silo_address,  max_debt = %max_debt, "Insolvent but below base threshold. Skipping.");
+                        ctx.watchlist
+                            .write()
+                            .await
+                            .retain(|(w, _, _)| *w != borrower);
+                        return;
+                    }
+
+                    info!(
+                        ?borrower,
+                        "🚨 Detected insolvency after Pyth simulation - executing liquidation"
+                    );
+
+                    let swap_data = get_swap_data(
+                        &ctx.helpers[0].clone(),
+                        collateral_token,
+                        debt_token,
+                        collateral_to_liquidate,
+                    )
+                    .await;
+
+                    update_pyth_price_then_liquidate_and_wait_for_receipt(
+                        ctx.clone(),
+                        ctx.helpers[0].clone(),
+                        borrower,
+                        debt_token,
+                        collateral_token,
+                        swap_data,
+                        p.1.clone()
+                            .into_iter()
+                            .map(|b| Bytes::copy_from_slice(b.as_bytes()))
+                            .collect::<Vec<_>>(),
+                    )
+                    .await;
+                }
+            }
+            Err(e) => {
+                error!(?borrower, "Pyth simulation failed: {e}");
+                return;
+            }
+        }
+    } else {
+        warn!(?borrower, "No Pyth price, skipping simulation.");
+        sleep(Duration::from_secs(5)).await;
+        return;
     }
 }
 

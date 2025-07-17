@@ -16,3 +16,5 @@ contract/lib/*
 
 *.csv
 storage_layout.json
+
+contract/node_modules/*

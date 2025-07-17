@@ -15,12 +15,16 @@ contract Deploy is Script {
         address payable liquidator_receiver = payable(
             0xfeed000000000000000000000000000000000001
         ); // Replace with your address
+        address pythAggregator = address(
+            0x2880aB155794e7179c9eE2e38200202908C17B43
+        );
 
         vm.startBroadcast();
 
         LiquidationHelper liquidator = new LiquidationHelper(
             nativeToken,
             shadowRouter,
+            pythAggregator,
             liquidator_receiver
         );
 

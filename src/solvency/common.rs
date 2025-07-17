@@ -115,7 +115,7 @@ pub(crate) async fn update_pyth_price_then_liquidate_and_wait_for_receipt<P>(
     debt_token: Address,
     collateral_token: Address,
     swap_data: Bytes,
-    max_debt: U256,
+    price_data: Vec<Bytes>,
 ) -> bool
 where
     P: Provider + Clone + 'static,
@@ -125,13 +125,13 @@ where
         .updatePythPriceFeedsAndExecuteLiquidation(
             ctx.config.silo_address,
             debt_token,
-            max_debt,
             LiquidationData {
                 hook: ctx.config.hook_address,
                 collateralAsset: collateral_token,
                 borrower,
             },
             swap_data,
+            price_data,
         )
         .gas(5_000_000u64)
         .max_fee_per_gas(65_000_000_000u128)

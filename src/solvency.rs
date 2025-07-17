@@ -1,5 +1,4 @@
 mod common;
-pub(crate) mod pyth_strategy;
 pub(crate) mod same_token_strategy;
 pub(crate) mod swap_strategy;
 
@@ -27,10 +26,7 @@ use crate::{
         chainlink::{chainlink_forward_listener_task, SharedChainlinkPrice},
         hermes::{hermes_price_feed_task, SharedPythPrice},
     },
-    solvency::{
-        pyth_strategy::pyth_solvency, same_token_strategy::same_token_solvency,
-        swap_strategy::swap_solvency,
-    },
+    solvency::{same_token_strategy::same_token_solvency, swap_strategy::swap_solvency},
     types::{
         Borrower,
         IHookReceiver::{self},
@@ -314,35 +310,7 @@ async fn solvency_monitor_task<P: Provider + Clone + 'static>(
             if collateral_token == debt_token {
                 same_token_solvency(ctx.clone(), borrower, debt_token).await;
             } else {
-                match ctx.oracle_price_data {
-                    OraclePriceData::Chainlink {
-                        ref forwarded_price,
-                    } => {
-                        swap_solvency(
-                            ctx.clone(),
-                            borrower,
-                            debt_token,
-                            collateral_token,
-                            forwarded_price,
-                        )
-                        .await;
-                    }
-                    OraclePriceData::Pyth {
-                        ref price_feed,
-                        ref slot_0,
-                        ..
-                    } => {
-                        pyth_solvency(
-                            ctx.clone(),
-                            debt_token,
-                            collateral_token,
-                            &price_feed,
-                            borrower,
-                            slot_0,
-                        )
-                        .await
-                    }
-                }
+                swap_solvency(ctx.clone(), borrower, debt_token, collateral_token).await;
             }
         }
     }

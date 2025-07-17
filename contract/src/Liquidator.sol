@@ -4,23 +4,22 @@ pragma solidity ^0.8.13;
 import "@openzeppelin/contracts/utils/Address.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-
+import "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
+import "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
 import {IERC3156FlashBorrower} from "@silo-core/interfaces/IERC3156FlashBorrower.sol";
 import {IPartialLiquidation} from "@silo-core/interfaces/IPartialLiquidation.sol";
-
 import {ISilo} from "@silo-core/interfaces/ISilo.sol";
 import {IHookReceiver} from "@silo-core/interfaces/IHookReceiver.sol";
 import {ILiquidationHelper} from "@silo-core/interfaces/ILiquidationHelper.sol";
-
 import {IWrappedNativeToken} from "@silo-core/interfaces/IWrappedNativeToken.sol";
-
 
 contract LiquidationHelper is IERC3156FlashBorrower {
     using Address for address payable;
     using SafeERC20 for IERC20;
 
     // solhint-disable-next-line var-name-mixedcase
-    bytes32 internal constant _FLASHLOAN_CALLBACK = keccak256("ERC3156FlashBorrower.onFlashLoan");
+    bytes32 internal constant _FLASHLOAN_CALLBACK =
+        keccak256("ERC3156FlashBorrower.onFlashLoan");
 
     /// @dev token receiver will get all rewards from liquidation, does not matter who will execute tx
     address payable public immutable TOKENS_RECEIVER;
@@ -30,10 +29,7 @@ contract LiquidationHelper is IERC3156FlashBorrower {
 
     address public immutable EXCHANGE_PROXY;
 
-    address payable public immutable PYTH_AGGREGATOR;
-
-    uint256 private transient _withdrawCollateral;
-    uint256 private transient _repayDebtAssets;
+    IPyth PYTH_AGGREGATOR;
 
     error NoDebtToCover();
     error ZeroAddress();
@@ -41,11 +37,11 @@ contract LiquidationHelper is IERC3156FlashBorrower {
     /// @param _nativeToken address of wrapped native blockchain token eg. WETH on Ethereum
     /// @param _exchangeProxy exchange address, where to send swap data on liquidation
     /// @param _tokensReceiver all leftover tokens (debt and collateral) will be send to this address after liquidation
-    constructor (
+    constructor(
         address _nativeToken,
         address _exchangeProxy,
-        address payable _tokensReceiver,
-        address payable _pyth_aggregator
+        address _pyth_aggregator,
+        address payable _tokensReceiver
     ) {
         require(_nativeToken != address(0), ZeroAddress());
         require(_exchangeProxy != address(0), ZeroAddress());
@@ -77,30 +73,15 @@ contract LiquidationHelper is IERC3156FlashBorrower {
         uint256 _maxDebtToCover,
         ILiquidationHelper.LiquidationData calldata _liquidation,
         bytes calldata _swapsInputs
-    ) external virtual returns (uint256 withdrawCollateral, uint256 repayDebtAssets) {
-        require(_maxDebtToCover != 0, NoDebtToCover());
-
-        _flashLoanFrom.flashLoan(this, _debtAsset, _maxDebtToCover, abi.encode(_liquidation, _swapsInputs));
-        IERC20(_debtAsset).forceApprove(address(_flashLoanFrom), 0);
-
-        withdrawCollateral = _withdrawCollateral;
-        repayDebtAssets = _repayDebtAssets;
-    }
-
-    function updatePythPriceFeedsAndExecuteLiquidation(
-        ISilo _flashLoanFrom,
-        address _debtAsset,
-        uint256 _maxDebtToCover,
-        ILiquidationHelper.LiquidationData calldata _liquidation,
-        bytes calldata _swapsInputs,
-        bytes[] calldata priceUpdate
     ) external {
         require(_maxDebtToCover != 0, NoDebtToCover());
 
-        uint fee = pyth.getUpdateFee(priceUpdate);
-        PYTH_AGGREGATOR.updatePriceFeeds{ value: fee }(priceUpdate);
-
-        _flashLoanFrom.flashLoan(this, _debtAsset, _maxDebtToCover, abi.encode(_liquidation, _swapsInputs));
+        _flashLoanFrom.flashLoan(
+            this,
+            _debtAsset,
+            _maxDebtToCover,
+            abi.encode(_liquidation, _swapsInputs)
+        );
         IERC20(_debtAsset).forceApprove(address(_flashLoanFrom), 0);
     }
 
@@ -111,15 +92,38 @@ contract LiquidationHelper is IERC3156FlashBorrower {
         address _debtAsset,
         ILiquidationHelper.LiquidationData calldata _liquidation,
         bytes calldata _swapsInputs
-    ) external virtual returns (uint256 withdrawCollateral, uint256 repayDebtAssets) {
+    ) public {
+        (, uint256 _maxDebtToCover, ) = silo_hook.maxLiquidation(
+            _liquidation.user
+        );
+        require(_maxDebtToCover != 0, NoDebtToCover());
 
-        (, uint256 _maxDebtToCover,) = silo_hook.maxLiquidation(_liquidation.user);
-
-        _flashLoanFrom.flashLoan(this, _debtAsset, _maxDebtToCover, abi.encode(_liquidation, _swapsInputs));
+        _flashLoanFrom.flashLoan(
+            this,
+            _debtAsset,
+            _maxDebtToCover,
+            abi.encode(_liquidation, _swapsInputs)
+        );
         IERC20(_debtAsset).forceApprove(address(_flashLoanFrom), 0);
+    }
 
-        withdrawCollateral = _withdrawCollateral;
-        repayDebtAssets = _repayDebtAssets;
+    function updatePythPriceFeedsAndExecuteLiquidation(
+        ISilo _flashLoanFrom,
+        address _debtAsset,
+        ILiquidationHelper.LiquidationData calldata _liquidation,
+        bytes calldata _swapsInputs,
+        bytes[] calldata priceUpdate
+    ) external {
+        uint fee = PYTH_AGGREGATOR.getUpdateFee(priceUpdate);
+        PYTH_AGGREGATOR.updatePriceFeeds{value: fee}(priceUpdate);
+
+        executeLiquidationBlind(
+            _flashLoanFrom,
+            _liquidation.hook,
+            _debtAsset,
+            _liquidation,
+            _swapsInputs
+        );
     }
 
     /// @inheritdoc IERC3156FlashBorrower
@@ -129,21 +133,18 @@ contract LiquidationHelper is IERC3156FlashBorrower {
         uint256 _maxDebtToCover,
         uint256 _fee,
         bytes calldata _data
-    )
-        external
-        virtual
-        returns (bytes32)
-    {
+    ) external returns (bytes32) {
         (
             ILiquidationHelper.LiquidationData memory _liquidation,
             bytes memory _swapInputs
         ) = abi.decode(_data, (ILiquidationHelper.LiquidationData, bytes));
 
-        IERC20(_debtAsset).forceApprove(address(_liquidation.hook), _maxDebtToCover);
+        IERC20(_debtAsset).forceApprove(
+            address(_liquidation.hook),
+            _maxDebtToCover
+        );
 
-        (
-            _withdrawCollateral, _repayDebtAssets
-        ) = _liquidation.hook.liquidationCall({
+        _liquidation.hook.liquidationCall({
             _collateralAsset: _liquidation.collateralAsset,
             _debtAsset: _debtAsset,
             _user: _liquidation.user,
@@ -155,11 +156,19 @@ contract LiquidationHelper is IERC3156FlashBorrower {
         uint256 flashLoanWithFee = _maxDebtToCover + _fee;
 
         if (_liquidation.collateralAsset == _debtAsset) {
-            uint256 balance = IERC20(_liquidation.collateralAsset).balanceOf(address(this));
-            require(flashLoanWithFee <= balance, ILiquidationHelper.UnableToRepayFlashloan());
+            uint256 balance = IERC20(_liquidation.collateralAsset).balanceOf(
+                address(this)
+            );
+            require(
+                flashLoanWithFee <= balance,
+                ILiquidationHelper.UnableToRepayFlashloan()
+            );
 
             // bad debt is not supported, we will get underflow on bad debt
-            _transferToReceiver(_liquidation.collateralAsset, balance - flashLoanWithFee);
+            _transferToReceiver(
+                _liquidation.collateralAsset,
+                balance - flashLoanWithFee
+            );
         } else {
             // swap all collateral for debt
             // most likely there will be dust left in collateral tokens, this dust will be "recovered"
@@ -171,7 +180,10 @@ contract LiquidationHelper is IERC3156FlashBorrower {
             if (flashLoanWithFee < debtBalance) {
                 unchecked {
                     // safe because of `if (flashLoanWithFee < debtBalance)`
-                    _transferToReceiver(_debtAsset, debtBalance - flashLoanWithFee);
+                    _transferToReceiver(
+                        _debtAsset,
+                        debtBalance - flashLoanWithFee
+                    );
                 }
             } else if (flashLoanWithFee != debtBalance) {
                 revert ILiquidationHelper.UnableToRepayFlashloan();
@@ -182,7 +194,10 @@ contract LiquidationHelper is IERC3156FlashBorrower {
         return _FLASHLOAN_CALLBACK;
     }
 
-    function _executeSwap(address _sellToken, bytes memory _swapInputs) internal virtual {
+    function _executeSwap(
+        address _sellToken,
+        bytes memory _swapInputs
+    ) internal {
         IERC20(_sellToken).approve(EXCHANGE_PROXY, type(uint256).max);
 
         (bool success, ) = EXCHANGE_PROXY.call{value: 0}(_swapInputs);
@@ -191,7 +206,7 @@ contract LiquidationHelper is IERC3156FlashBorrower {
         IERC20(_sellToken).approve(EXCHANGE_PROXY, 0);
     }
 
-    function _transferToReceiver(address _asset, uint256 _amount) internal virtual {
+    function _transferToReceiver(address _asset, uint256 _amount) internal {
         if (_amount == 0) return;
 
         if (_asset == NATIVE_TOKEN) {
@@ -202,7 +217,7 @@ contract LiquidationHelper is IERC3156FlashBorrower {
     }
 
     /// @notice We assume that quoteToken is wrapped native token
-    function _transferNative(uint256 _amount) internal virtual {
+    function _transferNative(uint256 _amount) internal {
         IWrappedNativeToken(address(NATIVE_TOKEN)).withdraw(_amount);
         TOKENS_RECEIVER.sendValue(_amount);
     }

@@ -148,7 +148,6 @@ sol! {
         function updatePythPriceFeedsAndExecuteLiquidation(
             address silo,
             address debtAsset,
-            uint256 maxDebtToCover,
             LiquidationData liquidation,
             bytes swapData,
             bytes[] priceUpdate,
