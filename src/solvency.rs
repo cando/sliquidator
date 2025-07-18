@@ -122,10 +122,6 @@ where
             ctx.clone(),
             near_insolvency_check_millis,
         )),
-        tokio::spawn(chainlink_forward_listener_task(
-            ctx.clone(),
-            shared_chainlink_price.clone(),
-        )),
     ];
 
     match oracle_data {
@@ -139,7 +135,12 @@ where
                 price_feed.clone(),
             )));
         }
-        _ => (),
+        OraclePriceData::Chainlink { forwarded_price } => {
+            handles.push(tokio::spawn(chainlink_forward_listener_task(
+                ctx.clone(),
+                forwarded_price.clone(),
+            )));
+        }
     }
 
     handles
