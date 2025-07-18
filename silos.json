@@ -13,8 +13,9 @@
             "borrowers_file": "dWs-20.csv",
             "min_amounts_for_liquidation": [
                 1200000000000000000,
-                12000000000000000000
+                6000000000000000000
             ],
+            "swap_pool_tick_spacing": 50,
             "oracle": {
                 "type": "Chainlink"
             }
@@ -28,8 +29,9 @@
             "borrowers_file": "dUSDC-20.csv",
             "min_amounts_for_liquidation": [
                 1500000,
-                15000000
+                6000000
             ],
+            "swap_pool_tick_spacing": 50,
             "oracle": {
                 "type": "Chainlink"
             }
@@ -43,8 +45,9 @@
             "borrowers_file": "dUSDC-8.csv",
             "min_amounts_for_liquidation": [
                 1500000,
-                15000000
+                6000000
             ],
+            "swap_pool_tick_spacing": 50,
             "oracle": {
                 "type": "Chainlink"
             }
@@ -59,6 +62,7 @@
             "min_amounts_for_liquidation": [
                 2500000
             ],
+            "swap_pool_tick_spacing": 100,
             "oracle": {
                 "type": "Pyth",
                 "config": {
@@ -75,9 +79,9 @@
             "debt_token_address": "0xdEf18A0a4b6c8E2E77547755c0d15b2448D6B710",
             "borrowers_file": "dUSDC-27.csv",
             "min_amounts_for_liquidation": [
-                25000000,
-                250000000
+                25000000
             ],
+            "swap_pool_tick_spacing": 100,
             "oracle": {
                 "type": "Pyth",
                 "config": {

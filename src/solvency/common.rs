@@ -1,9 +1,6 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use alloy::{
-    primitives::{aliases::I24, Address, Bytes, U160, U256},
+    primitives::{Address, Bytes, U256},
     providers::Provider,
-    sol_types::SolCall,
 };
 use eyre::eyre;
 use tracing::{error, info};
@@ -14,43 +11,6 @@ use crate::types::{
 
 pub(crate) const MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX: usize = 0;
 pub(crate) const MIN_AMOUNT_FOR_LIQUIDATION_SIMULATED_STRATEGY_INDEX: usize = 1;
-
-pub(crate) async fn get_swap_data<P>(
-    helper: &ILiquidationHelperInstance<P>,
-    collateral_token: Address,
-    debt_token: Address,
-    collateral_to_liquidate: U256,
-) -> Bytes
-where
-    P: Provider + Clone + 'static,
-{
-    if collateral_token != debt_token {
-        let amount_for_swap = collateral_to_liquidate * U256::from(995) / U256::from(1000);
-
-        let call = crate::types::IV3SwapRouter::exactInputSingleCall {
-            params: crate::types::IV3SwapRouter::ExactInputSingleParams {
-                tokenIn: collateral_token,
-                tokenOut: debt_token,
-                tickSpacing: I24::unchecked_from(50),
-                recipient: *helper.address(),
-                deadline: U256::from(
-                    SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .expect("Time went backwards")
-                        .as_secs()
-                        + 300,
-                ),
-                amountIn: amount_for_swap,
-                amountOutMinimum: U256::ZERO,
-                sqrtPriceLimitX96: U160::ZERO,
-            },
-        };
-
-        Bytes::from(call.abi_encode())
-    } else {
-        Vec::new().into()
-    }
-}
 
 pub(crate) async fn liquidate_and_wait_for_receipt<P>(
     ctx: LiquidationContext<P>,

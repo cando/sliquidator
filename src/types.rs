@@ -195,6 +195,9 @@ sol! {
         function transmit(bytes32[3] reportContext, bytes report, bytes32[] rs, bytes32[] ss, bytes32 rawVs);
     }
 
-
+    #[sol(rpc)]
+    interface IV3Oracle {
+        function getAggregatorPrice(bool _primary) view returns (bool success, uint256 price);
+    }
 
 }

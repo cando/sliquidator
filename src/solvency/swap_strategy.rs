@@ -1,8 +1,9 @@
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy::{
-    primitives::{Address, Bytes, FixedBytes, U256},
+    primitives::{aliases::I24, Address, Bytes, FixedBytes, U160, U256},
     providers::Provider,
+    sol_types::SolCall,
 };
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
@@ -14,12 +15,15 @@ use crate::{
         simulator::{chainlink_is_borrower_solvent_simulated, pyth_is_borrower_solvent_simulated},
     },
     solvency::common::{
-        get_swap_data, liquidate_and_wait_for_receipt, liquidate_no_wait,
+        liquidate_and_wait_for_receipt, liquidate_no_wait,
         update_pyth_price_then_liquidate_and_wait_for_receipt,
         MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
         MIN_AMOUNT_FOR_LIQUIDATION_SIMULATED_STRATEGY_INDEX,
     },
-    types::{IHookReceiver::maxLiquidationReturn, LiquidationContext, OraclePriceData},
+    types::{
+        IHookReceiver::maxLiquidationReturn, ILiquidationHelper::ILiquidationHelperInstance,
+        LiquidationContext, OraclePriceData,
+    },
 };
 
 pub(crate) async fn swap_solvency(
@@ -176,6 +180,7 @@ pub(crate) async fn try_pyth_simulated_liquidation(
 
                     let swap_data = get_swap_data(
                         &ctx.helpers[0].clone(),
+                        ctx.config.swap_pool_tick_spacing,
                         collateral_token,
                         debt_token,
                         collateral_to_liquidate,
@@ -191,7 +196,10 @@ pub(crate) async fn try_pyth_simulated_liquidation(
                         swap_data,
                         p.1.clone()
                             .into_iter()
-                            .map(|b| Bytes::copy_from_slice(b.as_bytes()))
+                            .map(|b| {
+                                let hex_bytes = alloy::hex::decode(b).expect("Invalid hex string");
+                                Bytes::copy_from_slice(&hex_bytes)
+                            })
                             .collect::<Vec<_>>(),
                     )
                     .await;
@@ -234,6 +242,7 @@ async fn try_direct_liquidation<P: Provider + Clone + 'static>(
 
     let swap_data = get_swap_data(
         &ctx.helpers[0].clone(),
+        ctx.config.swap_pool_tick_spacing,
         collateral_token,
         debt_token,
         liquidation.collateralToLiquidate,
@@ -269,6 +278,7 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
 
         let swap_data = get_swap_data(
             &helper,
+            ctx.config.swap_pool_tick_spacing,
             collateral_token,
             debt_token,
             collateral_to_liquidate,
@@ -297,4 +307,42 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
         .write()
         .await
         .retain(|(w, _, _)| *w != borrower);
+}
+
+async fn get_swap_data<P>(
+    helper: &ILiquidationHelperInstance<P>,
+    tick_spacing: usize,
+    collateral_token: Address,
+    debt_token: Address,
+    collateral_to_liquidate: U256,
+) -> Bytes
+where
+    P: Provider + Clone + 'static,
+{
+    if collateral_token != debt_token {
+        let amount_for_swap = collateral_to_liquidate * U256::from(995) / U256::from(1000);
+
+        let call = crate::types::IV3SwapRouter::exactInputSingleCall {
+            params: crate::types::IV3SwapRouter::ExactInputSingleParams {
+                tokenIn: collateral_token,
+                tokenOut: debt_token,
+                tickSpacing: I24::unchecked_from(tick_spacing),
+                recipient: *helper.address(),
+                deadline: U256::from(
+                    SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .expect("Time went backwards")
+                        .as_secs()
+                        + 300,
+                ),
+                amountIn: amount_for_swap,
+                amountOutMinimum: U256::ZERO,
+                sqrtPriceLimitX96: U160::ZERO,
+            },
+        };
+
+        Bytes::from(call.abi_encode())
+    } else {
+        Vec::new().into()
+    }
 }

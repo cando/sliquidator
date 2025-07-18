@@ -27,6 +27,7 @@ pub struct SiloConfig {
     pub debt_token_address: Address,
     pub borrowers_file: String,
     pub oracle: Oracle,
+    pub swap_pool_tick_spacing: usize,
     pub min_amounts_for_liquidation: Vec<u64>, // [amount_base_solvency_tier, amount_simulated_solvency_tier]
 }
 

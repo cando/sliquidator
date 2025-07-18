@@ -22,15 +22,13 @@ where
     let multicall = ctx
         .provider
         .multicall()
-        .add(ctx.lens.getLtv(ctx.config.silo_address, borrower))
         .add(ctx.hook.maxLiquidation(borrower))
         .add(ctx.silo.isSolvent(borrower))
         .overrides(state_override)
         .block(BlockId::Number(alloy::eips::BlockNumberOrTag::Latest));
 
-    let (ltv, liquidation, is_solvent) = multicall.aggregate().await?;
+    let (liquidation, is_solvent) = multicall.aggregate().await?;
 
-    tracing::info!(ltv = ?ltv, liquidation = ?liquidation.maxDebt, is_solvent = ?is_solvent, "Simulated borrower solvency check");
     Ok((
         is_solvent,
         liquidation.maxDebt,
