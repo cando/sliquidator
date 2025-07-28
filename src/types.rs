@@ -28,6 +28,7 @@ pub enum OraclePriceData {
         price_feed: SharedPythPrice,
         slot_0: FixedBytes<32>,
     },
+    Redstone,
 }
 
 #[derive(Clone)]

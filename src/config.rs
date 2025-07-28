@@ -18,6 +18,7 @@ pub enum Oracle {
         price_id: String,
         slot_0: FixedBytes<32>,
     },
+    Redstone,
 }
 #[derive(Debug, Clone, Deserialize)]
 pub struct SiloConfig {

@@ -90,6 +90,7 @@ where
             price_feed: shared_pyth_price,
             slot_0: *slot_0,
         },
+        crate::config::Oracle::Redstone => OraclePriceData::Redstone,
     };
 
     let liquidation_threshold = lens
@@ -141,6 +142,7 @@ where
                 forwarded_price.clone(),
             )));
         }
+        OraclePriceData::Redstone => {}
     }
 
     handles

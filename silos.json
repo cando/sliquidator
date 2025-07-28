@@ -89,6 +89,36 @@
                     "slot_0": "0x586baa15fa17b0fbbc6939b28eb3223994dfa95a07202f334b47673e00596743"
                 }
             }
+        },
+        {
+            "_": "SILO1 (stS) -  Market 3 (StS/S)",
+            "config_address": "0x78C246f67c8A6cE03a1d894d4Cf68004Bd55Deea",
+            "silo_address": "0x396922EF30Cf012973343f7174db850c7D265278",
+            "hook_address": "0x1cA36d7a5806650B2Daff7d365A61Ac058107B14",
+            "debt_token_address": "0xf47Be4aaa1a5DcE379a801f712Ac21a7BDF63D40",
+            "borrowers_file": "dstS-3.csv",
+            "min_amounts_for_liquidation": [
+                5000000000000000000
+            ],
+            "swap_pool_tick_spacing": 1,
+            "oracle": {
+                "type": "Redstone"
+            }
+        },
+        {
+            "_": "SILO1 (S) -  Market 3 (StS/S)",
+            "config_address": "0x78C246f67c8A6cE03a1d894d4Cf68004Bd55Deea",
+            "silo_address": "0x47d8490Be37ADC7Af053322d6d779153689E13C1",
+            "hook_address": "0x1cA36d7a5806650B2Daff7d365A61Ac058107B14",
+            "debt_token_address": "0xc5eb7E39637f1d894c0F710F6b9F35168E9fa331",
+            "borrowers_file": "dWs-3.csv",
+            "min_amounts_for_liquidation": [
+                5000000000000000000
+            ],
+            "swap_pool_tick_spacing": 1,
+            "oracle": {
+                "type": "Redstone"
+            }
         }
     ]
 }

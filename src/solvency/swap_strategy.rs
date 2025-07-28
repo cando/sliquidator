@@ -78,6 +78,12 @@ pub(crate) async fn swap_solvency(
                 )
                 .await
             }
+            OraclePriceData::Redstone => {
+                debug!(
+                    ?borrower,
+                    "Redstone oracle not supported for simulated swap solvency checks."
+                );
+            }
         }
     } else {
         try_direct_liquidation(&ctx, borrower, debt_token, collateral_token, liquidation).await;
