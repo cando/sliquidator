@@ -130,7 +130,12 @@ async fn try_chainlink_simulated_liquidation<P: Provider + Clone + 'static>(
                 )
                 .await;
             } else {
-                debug!(?borrower, max_debt = %max_debt, "Simulated insolvency but below threshold. Skipping.");
+                info!(?borrower, max_debt = %max_debt, min_threshold = ?min_threshold, "Simulated insolvency but below threshold. Skipping.");
+                ctx.watchlist
+                    .write()
+                    .await
+                    .retain(|(w, _, _)| *w != borrower);
+                return;
             }
         }
         Err(e) => {
