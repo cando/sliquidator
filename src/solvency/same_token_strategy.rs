@@ -196,4 +196,11 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
 
         sleep(Duration::from_millis(400)).await;
     }
+
+    // Remove the borrower from the watchlist after attempting liquidations
+    // in order to avoid repeated attempts
+    ctx.watchlist
+        .write()
+        .await
+        .retain(|(w, _, _)| *w != borrower);
 }

@@ -16,13 +16,12 @@ use crate::{
     },
     solvency::common::{
         liquidate_and_wait_for_receipt, liquidate_no_wait,
-        update_pyth_price_then_liquidate_and_wait_for_receipt,
         MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
         MIN_AMOUNT_FOR_LIQUIDATION_SIMULATED_STRATEGY_INDEX,
     },
     types::{
         IHookReceiver::maxLiquidationReturn, ILiquidationHelper::ILiquidationHelperInstance,
-        LiquidationContext, OraclePriceData,
+        LiquidationContext, LiquidationData, OraclePriceData,
     },
 };
 
@@ -187,7 +186,7 @@ pub(crate) async fn try_pyth_simulated_liquidation(
                     )
                     .await;
 
-                    update_pyth_price_then_liquidate_and_wait_for_receipt(
+                    update_pyth_price_then_liquidate_no_wait(
                         ctx.clone(),
                         ctx.helpers[0].clone(),
                         borrower,
@@ -302,6 +301,57 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
     }
 
     // Remove the borrower from the watchlist after attempting liquidations
+    // in order to avoid repeated attempts
+    ctx.watchlist
+        .write()
+        .await
+        .retain(|(w, _, _)| *w != borrower);
+}
+
+pub(crate) async fn update_pyth_price_then_liquidate_no_wait<P>(
+    ctx: LiquidationContext<P>,
+    helper: ILiquidationHelperInstance<P>,
+    borrower: Address,
+    debt_token: Address,
+    collateral_token: Address,
+    swap_data: Bytes,
+    price_data: Vec<Bytes>,
+) where
+    P: Provider + Clone + 'static,
+{
+    info!(collateral_token = ?collateral_token, debt_token = ?debt_token, ?borrower, "🚀 Sending Pyth liquidation tx...");
+    let liquidation_call = helper
+        .updatePythPriceFeedsAndExecuteLiquidation(
+            ctx.config.silo_address,
+            debt_token,
+            LiquidationData {
+                hook: ctx.config.hook_address,
+                collateralAsset: collateral_token,
+                borrower,
+            },
+            swap_data,
+            price_data,
+        )
+        .gas(5_000_000u64)
+        .max_fee_per_gas(65_000_000_000u128)
+        .max_priority_fee_per_gas(65_000_000_000u128)
+        .send()
+        .await;
+
+    match liquidation_call {
+        Ok(pending_tx) => {
+            info!(
+                ?borrower,
+                "Pyth Liquidation tx sent: {:?}",
+                pending_tx.tx_hash()
+            );
+        }
+        Err(e) => {
+            error!(?borrower, "Failed to send pyth liquidation tx: {e}");
+        }
+    }
+
+    // Remove the borrower from the watchlist after attempting liquidation
     // in order to avoid repeated attempts
     ctx.watchlist
         .write()
