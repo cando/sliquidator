@@ -50,6 +50,7 @@ pub async fn run_solvency_monitor<P>(
     near_insolvency_check_millis: u64,
     fast_check_solvency_threshold: f64,
     fast_check_solvency_threshold_same_token_percentage: f64,
+    fast_check_solvency_threshold_stable_market_percentage: f64,
 ) -> Vec<JoinHandle<()>>
 where
     P: Provider + Clone + 'static,
@@ -60,6 +61,8 @@ where
     let fast_check_threshold = percent_to_wei(fast_check_solvency_threshold);
     let fast_check_threshold_same_token =
         percent_to_wei(fast_check_solvency_threshold_same_token_percentage);
+    let fast_check_threshold_stable_market =
+        percent_to_wei(fast_check_solvency_threshold_stable_market_percentage);
 
     let watchlist = Arc::new(RwLock::new(Vec::new()));
     let blacklist = Arc::new(RwLock::new(HashSet::from([])));
@@ -113,6 +116,7 @@ where
         borrowers,
         fast_check_threshold,
         fast_check_threshold_same_token,
+        fast_check_threshold_stable_market,
         liquidation_threshold,
     };
 
@@ -179,13 +183,15 @@ async fn refresh_watchlist_task<P: Provider + Clone + 'static>(
                             ctx.silo_config.getConfigsForSolvency(wallet).call().await
                         {
                             if !bh.lt.is_zero() && !bh.ltv.is_zero() {
-                                if config_data.collateralConfig.token
+                                if (config_data.collateralConfig.token
                                     == config_data.debtConfig.token
-                                    && gap > ctx.fast_check_threshold_same_token
+                                    && gap > ctx.fast_check_threshold_same_token)
+                                    || (ctx.config.is_stable_market
+                                        && gap > ctx.fast_check_threshold_stable_market)
                                 {
-                                    // Solvency check for same token borrow/lend is way slower, so
+                                    // Solvency check for same token borrow/lend is way slower or for stable market, so
                                     // we check if the gap is small enough to warrant it
-                                    info!(borrower = %wallet, gap = %gap, ltv=%bh.ltv, "Skipping same token check");
+                                    info!(borrower = %wallet, gap = %gap, threshold = ?ctx.fast_check_threshold_stable_market, ltv=%bh.ltv, "Skipping same token/stable market check");
                                     continue;
                                 }
 

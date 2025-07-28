@@ -6,6 +6,7 @@ pub struct AppConfig {
     pub silos: Vec<SiloConfig>,
     pub fast_check_solvency_threshold_percentage: f64,
     pub fast_check_solvency_threshold_same_token_percentage: f64,
+    pub fast_check_solvency_threshold_stable_market_percentage: f64,
     pub all_borrowers_full_health_refresh_secs: u64,
     pub near_insolvency_check_millis: u64,
 }
@@ -30,6 +31,7 @@ pub struct SiloConfig {
     pub oracle: Oracle,
     pub swap_pool_tick_spacing: usize,
     pub min_amounts_for_liquidation: Vec<u64>, // [amount_base_solvency_tier, amount_simulated_solvency_tier]
+    pub is_stable_market: bool,
 }
 
 pub fn load_app_config(path: &str) -> eyre::Result<AppConfig> {

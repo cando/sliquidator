@@ -1,6 +1,7 @@
 {
     "fast_check_solvency_threshold_percentage": 0.5,
     "fast_check_solvency_threshold_same_token_percentage": 0.05,
+    "fast_check_solvency_threshold_stable_market_percentage": 0.005,
     "all_borrowers_full_health_refresh_secs": 30,
     "near_insolvency_check_millis": 20,
     "silos": [
@@ -18,7 +19,8 @@
             "swap_pool_tick_spacing": 50,
             "oracle": {
                 "type": "Chainlink"
-            }
+            },
+            "is_stable_market": false
         },
         {
             "_": "SIL01 (USDC) -  Market 20 (S/USDC)",
@@ -34,7 +36,8 @@
             "swap_pool_tick_spacing": 50,
             "oracle": {
                 "type": "Chainlink"
-            }
+            },
+            "is_stable_market": false
         },
         {
             "_": "SIL01 (USDC) -  Market 8 (S/USDC)",
@@ -50,7 +53,8 @@
             "swap_pool_tick_spacing": 50,
             "oracle": {
                 "type": "Chainlink"
-            }
+            },
+            "is_stable_market": false
         },
         {
             "_": "SIL01 (USDC) -  Market 49 (X33/USDC)",
@@ -69,7 +73,8 @@
                     "price_id": "0x6f02ad2b8a307411fc3baedb9876e83efe9fa9f5b752aab8c99f4742c9e5f5d5",
                     "slot_0": "0x22f9d87a4a3e234e3d8b5208a9e4c0fdb99218b58e5fb060ac733b4da9f06dab"
                 }
-            }
+            },
+            "is_stable_market": false
         },
         {
             "_": "SIL01 (USDC) -  Market 27 (Anon/USDC)",
@@ -88,7 +93,8 @@
                     "price_id": "0x7a36855b8a4a6efd701ed82688694bbf67602de9faae509ae28f91065013cb82",
                     "slot_0": "0x586baa15fa17b0fbbc6939b28eb3223994dfa95a07202f334b47673e00596743"
                 }
-            }
+            },
+            "is_stable_market": false
         },
         {
             "_": "SILO1 (stS) -  Market 3 (StS/S)",
@@ -103,7 +109,8 @@
             "swap_pool_tick_spacing": 1,
             "oracle": {
                 "type": "Redstone"
-            }
+            },
+            "is_stable_market": true
         },
         {
             "_": "SILO1 (S) -  Market 3 (StS/S)",
@@ -118,7 +125,8 @@
             "swap_pool_tick_spacing": 1,
             "oracle": {
                 "type": "Redstone"
-            }
+            },
+            "is_stable_market": true
         }
     ]
 }

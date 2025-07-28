@@ -206,6 +206,7 @@ where
         app_config.near_insolvency_check_millis,
         app_config.fast_check_solvency_threshold_percentage,
         app_config.fast_check_solvency_threshold_same_token_percentage,
+        app_config.fast_check_solvency_threshold_stable_market_percentage,
     )
     .await
 }

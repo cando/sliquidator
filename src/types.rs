@@ -46,6 +46,7 @@ pub struct LiquidationContext<P: Provider + Clone + 'static> {
     pub borrowers: SharedAddressList,
     pub fast_check_threshold: U256,
     pub fast_check_threshold_same_token: U256,
+    pub fast_check_threshold_stable_market: U256,
     pub liquidation_threshold: U256,
 }
 
