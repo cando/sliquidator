@@ -13,7 +13,7 @@ pub fn load_borrowers(file_path: &str) -> Vec<Address> {
             match trimmed.parse::<Address>() {
                 Ok(addr) => Some(addr),
                 Err(e) => {
-                    tracing::warn!("Invalid address '{}': {e}", trimmed);
+                    tracing::warn!(?file_path, "Invalid address '{}': {e}", trimmed);
                     None
                 }
             }

@@ -29,6 +29,23 @@ contract LiquidationHelper is IERC3156FlashBorrower {
 
     address public immutable EXCHANGE_PROXY;
 
+    address public immutable SHADOW_V3_ROUTER =
+        address(0x5543c6176FEb9B4b179078205d7C29EEa2e2d695);
+    address public immutable SHADOW_V2_ROUTER =
+        address(0x1D368773735ee1E678950B7A97bcA2CafB330CDc);
+
+    address immutable X33 = address(0x3333111A391cC08fa51353E9195526A70b333333);
+    address public immutable SHADOW =
+        address(0x3333b97138D4b086720b5aE8A7844b1345a33333);
+    address public immutable USDC =
+        address(0x29219dd400f2Bf60E5a23d13Be72B486D4038894);
+
+    struct route {
+        address from;
+        address to;
+        bool stable;
+    }
+
     IPyth PYTH_AGGREGATOR;
 
     error NoDebtToCover();
@@ -173,7 +190,12 @@ contract LiquidationHelper is IERC3156FlashBorrower {
             // swap all collateral for debt
             // most likely there will be dust left in collateral tokens, this dust will be "recovered"
             // once we will liquidate "oposite" position
-            _executeSwap(_liquidation.collateralAsset, _swapInputs);
+            if (_liquidation.collateralAsset == X33) {
+                // X33 is a special case, we need to use a more complexing routing
+                _executeX33Swap();
+            } else {
+                _executeSwap(_liquidation.collateralAsset, _swapInputs);
+            }
 
             uint256 debtBalance = IERC20(_debtAsset).balanceOf(address(this));
 
@@ -192,6 +214,76 @@ contract LiquidationHelper is IERC3156FlashBorrower {
 
         IERC20(_debtAsset).forceApprove(msg.sender, flashLoanWithFee);
         return _FLASHLOAN_CALLBACK;
+    }
+
+    function _executeX33Swap() internal {
+        /////////////////////////////////
+        // 1) X33 → SHADOW on V3 router
+        /////////////////////////////////
+        uint256 _amountIn = IERC20(X33).balanceOf(address(this));
+        IERC20(X33).forceApprove(address(SHADOW_V3_ROUTER), _amountIn);
+
+        // encode the single‐swap params as a tuple:
+        bytes memory payload1 = abi.encodeWithSignature(
+            "exactInputSingle((address,address,int24,address,uint256,uint256,uint256,uint160))",
+            X33,
+            SHADOW,
+            50,
+            address(this),
+            block.timestamp + 120,
+            _amountIn, // amountIn
+            0, // amountOutMinimum
+            0 // sqrtPriceLimitX96
+        );
+
+        (bool ok1, ) = address(SHADOW_V3_ROUTER).call{value: 0}(payload1);
+        require(ok1, "V3 swap 1 failed");
+        IERC20(X33).forceApprove(address(SHADOW_V3_ROUTER), 0);
+
+        //////////////////////////////////
+        // 2) SHADOW → WS on V2 router
+        //////////////////////////////////
+        uint256 shadowBal = IERC20(SHADOW).balanceOf(address(this));
+        IERC20(SHADOW).forceApprove(address(SHADOW_V2_ROUTER), shadowBal);
+
+        route[] memory routes = new route[](1);
+        routes[0] = route({from: SHADOW, to: NATIVE_TOKEN, stable: false});
+
+        bytes memory payload2 = abi.encodeWithSignature(
+            "swapExactTokensForTokens(uint256,uint256,(address,address,bool)[],address,uint256)",
+            shadowBal,
+            0,
+            routes,
+            address(this),
+            block.timestamp + 120
+        );
+
+        (bool ok2, ) = address(SHADOW_V2_ROUTER).call{value: 0}(payload2);
+        require(ok2, "V2 swap failed");
+
+        IERC20(SHADOW).forceApprove(address(SHADOW_V2_ROUTER), 0);
+
+        //////////////////////////////////
+        // 3) WS → USDC on V3 router
+        //////////////////////////////////
+        uint256 wsBal = IERC20(NATIVE_TOKEN).balanceOf(address(this));
+        IERC20(NATIVE_TOKEN).forceApprove(address(SHADOW_V3_ROUTER), wsBal);
+
+        bytes memory payload3 = abi.encodeWithSignature(
+            "exactInputSingle((address,address,int24,address,uint256,uint256,uint256,uint160))",
+            NATIVE_TOKEN,
+            USDC,
+            50,
+            address(this),
+            block.timestamp + 120,
+            wsBal,
+            0,
+            0
+        );
+
+        (bool ok3, ) = address(SHADOW_V3_ROUTER).call{value: 0}(payload3);
+        require(ok3, "V3 swap 3 failed");
+        IERC20(NATIVE_TOKEN).forceApprove(address(SHADOW_V3_ROUTER), 0);
     }
 
     function _executeSwap(
