@@ -42,7 +42,6 @@ pub struct LiquidationContext<P: Provider + Clone + 'static> {
     pub silo: ISiloInstance<P>,
     pub oracle_price_data: OraclePriceData,
     pub watchlist: Arc<RwLock<Vec<(Address, Address, Address)>>>,
-    pub blacklist: Arc<RwLock<HashSet<Address>>>,
     pub borrowers: SharedAddressList,
     pub fast_check_threshold: U256,
     pub fast_check_threshold_same_token: U256,

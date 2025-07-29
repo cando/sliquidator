@@ -2,7 +2,6 @@ use alloy::{
     primitives::{Address, Bytes, U256},
     providers::Provider,
 };
-use eyre::eyre;
 use tracing::{error, info};
 
 use crate::types::{
@@ -12,61 +11,7 @@ use crate::types::{
 pub(crate) const MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX: usize = 0;
 pub(crate) const MIN_AMOUNT_FOR_LIQUIDATION_SIMULATED_STRATEGY_INDEX: usize = 1;
 
-pub(crate) async fn liquidate_and_wait_for_receipt<P>(
-    ctx: LiquidationContext<P>,
-    helper: ILiquidationHelperInstance<P>,
-    borrower: Address,
-    debt_token: Address,
-    collateral_token: Address,
-    swap_data: Bytes,
-    max_debt: U256,
-) -> bool
-where
-    P: Provider + Clone + 'static,
-{
-    info!(collateral_token = ?collateral_token, debt_token = ?debt_token, ?borrower, "🚀 Sending liquidation tx...");
-    let tx = helper
-        .executeLiquidation(
-            ctx.config.silo_address,
-            debt_token,
-            max_debt,
-            LiquidationData {
-                hook: ctx.config.hook_address,
-                collateralAsset: collateral_token,
-                borrower,
-            },
-            swap_data,
-        )
-        .gas(5_000_000u64)
-        .max_fee_per_gas(65_000_000_000u128)
-        .max_priority_fee_per_gas(65_000_000_000u128);
-
-    match async {
-        let pending_tx = tx.send().await?;
-        let receipt = pending_tx.get_receipt().await?;
-        if !receipt.status() {
-            return Err(eyre!("Transaction reverted"));
-        }
-        Ok(receipt)
-    }
-    .await
-    {
-        Ok(receipt) => {
-            info!(?receipt.block_number, %borrower, "✅ Tx succeeded");
-            ctx.watchlist
-                .write()
-                .await
-                .retain(|(w, _, _)| *w != borrower);
-            return true;
-        }
-        Err(e) => {
-            error!(?borrower, "❌ Liquidation tx failed: {e}");
-            ctx.blacklist.write().await.insert(borrower);
-
-            return false;
-        }
-    }
-}
+pub(crate) const DEFAULT_MAX_FEE_PER_GAS: u128 = 65_000_000_000;
 
 pub(crate) async fn liquidate_no_wait<P>(
     ctx: LiquidationContext<P>,
@@ -96,7 +41,7 @@ pub(crate) async fn liquidate_no_wait<P>(
             )
             .gas(5_000_000u64)
             .max_fee_per_gas(max_fee_per_gas)
-            .max_priority_fee_per_gas(max_priority_fee_per_gas.unwrap_or(65_000_000_000u128))
+            .max_priority_fee_per_gas(max_priority_fee_per_gas.unwrap_or(DEFAULT_MAX_FEE_PER_GAS))
             .send()
             .await
     } else {
@@ -114,7 +59,7 @@ pub(crate) async fn liquidate_no_wait<P>(
             )
             .gas(5_000_000u64)
             .max_fee_per_gas(max_fee_per_gas)
-            .max_priority_fee_per_gas(max_priority_fee_per_gas.unwrap_or(65_000_000_000u128))
+            .max_priority_fee_per_gas(max_priority_fee_per_gas.unwrap_or(DEFAULT_MAX_FEE_PER_GAS))
             .send()
             .await
     };

@@ -10,8 +10,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     solvency::common::{
-        liquidate_and_wait_for_receipt, liquidate_no_wait,
-        MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
+        liquidate_no_wait, DEFAULT_MAX_FEE_PER_GAS, MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
     },
     types::{IHookReceiver::maxLiquidationReturn, LiquidationContext},
 };
@@ -156,16 +155,25 @@ async fn try_direct_same_token_liquidation<P: Provider + Clone + 'static>(
 
     info!(?borrower, max_debt = %max_debt, "🚨 Already insolvent → executing standard liquidation");
 
-    liquidate_and_wait_for_receipt(
+    liquidate_no_wait(
         ctx.clone(),
         ctx.helpers[0].clone(),
         borrower,
         token,
         token, // no swap
+        Some(max_debt),
         Bytes::new(),
-        max_debt,
+        None,
+        DEFAULT_MAX_FEE_PER_GAS,
     )
     .await;
+
+    // Remove the borrower from the watchlist after attempting liquidations
+    // in order to avoid repeated attempts
+    ctx.watchlist
+        .write()
+        .await
+        .retain(|(w, _, _)| *w != borrower);
 }
 
 async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
@@ -190,7 +198,7 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
             None,
             Bytes::new(),
             None,
-            65_000_000_000u128, // default max fee per gas
+            DEFAULT_MAX_FEE_PER_GAS,
         )
         .await;
 

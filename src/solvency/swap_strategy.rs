@@ -15,8 +15,7 @@ use crate::{
         simulator::{chainlink_is_borrower_solvent_simulated, pyth_is_borrower_solvent_simulated},
     },
     solvency::common::{
-        liquidate_and_wait_for_receipt, liquidate_no_wait,
-        MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
+        liquidate_no_wait, DEFAULT_MAX_FEE_PER_GAS, MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
         MIN_AMOUNT_FOR_LIQUIDATION_SIMULATED_STRATEGY_INDEX,
     },
     types::{
@@ -259,16 +258,25 @@ async fn try_direct_liquidation<P: Provider + Clone + 'static>(
     )
     .await;
 
-    liquidate_and_wait_for_receipt(
+    liquidate_no_wait(
         ctx.clone(),
         ctx.helpers[0].clone(),
         borrower,
         debt_token,
         collateral_token,
+        Some(max_debt),
         swap_data,
-        max_debt,
+        None,
+        DEFAULT_MAX_FEE_PER_GAS,
     )
     .await;
+
+    // Remove the borrower from the watchlist after attempting liquidations
+    // in order to avoid repeated attempts
+    ctx.watchlist
+        .write()
+        .await
+        .retain(|(w, _, _)| *w != borrower);
 }
 
 async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
