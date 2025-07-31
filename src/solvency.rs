@@ -6,14 +6,16 @@ use std::{collections::HashSet, sync::Arc};
 
 use alloy::{
     eips::BlockNumberOrTag,
+    network::Ethereum,
     primitives::{Address, U256},
-    providers::Provider,
+    providers::{PendingTransactionBuilder, Provider},
     rpc::types::Filter,
 };
 
+use chrono::Timelike;
 use futures::StreamExt;
 use tokio::{
-    sync::RwLock,
+    sync::{mpsc, RwLock},
     task::JoinHandle,
     time::{sleep, Duration},
 };
@@ -63,6 +65,7 @@ where
     let fast_check_threshold_stable_market =
         percent_to_wei(fast_check_solvency_threshold_stable_market_percentage);
     let watchlist = Arc::new(RwLock::new(Vec::new()));
+    let blacklist = Arc::new(RwLock::new(HashSet::from([])));
     let shared_pyth_price: SharedPythPrice = Arc::new(RwLock::new(None));
     let shared_chainlink_price: SharedChainlinkPrice = Arc::new(RwLock::new(None));
 
@@ -99,6 +102,8 @@ where
         .await
         .unwrap_or_default();
 
+    let (tx_sender, tx_receiver) =
+        mpsc::unbounded_channel::<(Address, PendingTransactionBuilder<Ethereum>)>();
     let ctx = LiquidationContext {
         provider,
         lens,
@@ -109,7 +114,9 @@ where
         silo,
         oracle_price_data: oracle_data.clone(),
         watchlist: watchlist.clone(),
+        blacklist: blacklist.clone(),
         borrowers,
+        liquidation_tx_sender: tx_sender,
         fast_check_threshold,
         fast_check_threshold_same_token,
         fast_check_threshold_stable_market,
@@ -123,6 +130,7 @@ where
             ctx.clone(),
             near_insolvency_check_millis,
         )),
+        tokio::spawn(receipt_monitor_task(ctx.clone(), tx_receiver)),
     ];
 
     match oracle_data {
@@ -156,14 +164,18 @@ async fn refresh_watchlist_task<P: Provider + Clone + 'static>(
         info!(silo = ?ctx.config.silo_address, "⏳ Refreshing borrower list...");
 
         let borrowers_guard = ctx.borrowers.read().await;
+        let blacklist_guard = ctx.blacklist.read().await;
+
         let borrower_inputs: Vec<Borrower> = borrowers_guard
             .iter()
+            .filter(|b| !blacklist_guard.contains(*b))
             .map(|&wallet| Borrower {
                 silo: ctx.config.silo_address,
                 wallet,
             })
             .collect();
         drop(borrowers_guard);
+        drop(blacklist_guard);
 
         let mut new_watchlist = Vec::new();
         for batch in borrower_inputs.chunks(GET_USERS_HEALTH_BATCH_SIZE) {
@@ -201,9 +213,18 @@ async fn refresh_watchlist_task<P: Provider + Clone + 'static>(
             }
         }
 
-        let mut lock = ctx.watchlist.write().await;
-        *lock = new_watchlist;
-        drop(lock);
+        {
+            let mut lock = ctx.watchlist.write().await;
+            *lock = new_watchlist;
+
+            if chrono::Local::now().hour() == 1 && chrono::Local::now().minute() == 42 {
+                // I know this is a bit of a hack, but it works for now.
+                // Just clear the blacklist at 01:42 local time, every day, so we don't have stale addresses
+                info!("Clearing blacklist at 01:42 local time");
+                let mut blacklist_lock = ctx.blacklist.write().await;
+                blacklist_lock.clear();
+            }
+        }
 
         sleep(Duration::from_secs(full_refresh_secs)).await;
     }
@@ -296,11 +317,43 @@ async fn solvency_monitor_task<P: Provider + Clone + 'static>(
         }
 
         for (borrower, collateral_token, debt_token) in to_watch.drain(..) {
+            if ctx.blacklist.read().await.contains(&borrower) {
+                continue;
+            }
+
             if collateral_token == debt_token {
                 same_token_solvency(ctx.clone(), borrower, debt_token).await;
             } else {
                 swap_solvency(ctx.clone(), borrower, debt_token, collateral_token).await;
             }
         }
+    }
+}
+
+async fn receipt_monitor_task<P: Provider + Clone + 'static>(
+    ctx: LiquidationContext<P>,
+    mut tx_receiver: mpsc::UnboundedReceiver<(Address, PendingTransactionBuilder<Ethereum>)>,
+) {
+    while let Some((borrower, pending_tx)) = tx_receiver.recv().await {
+        match pending_tx.get_receipt().await {
+            Ok(receipt) => {
+                if !receipt.status() {
+                    error!(
+                        ?borrower,
+                        "❌ Liquidation tx {} failed", receipt.transaction_hash,
+                    );
+                    ctx.blacklist.write().await.insert(borrower);
+                } else {
+                    info!(
+                        ?borrower,
+                        "✅ Liquidation tx {} succeeded", receipt.transaction_hash,
+                    );
+                }
+            }
+            Err(e) => {
+                error!(?borrower, "❌ Failed to get receipt for tx {e}");
+                continue;
+            }
+        };
     }
 }

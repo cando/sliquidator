@@ -1,11 +1,12 @@
 use std::{collections::HashSet, sync::Arc};
 
 use alloy::{
+    network::Ethereum,
     primitives::{Address, FixedBytes, U256},
-    providers::Provider,
+    providers::{PendingTransactionBuilder, Provider},
     sol,
 };
-use tokio::sync::RwLock;
+use tokio::sync::{mpsc, RwLock};
 
 use crate::{
     config::SiloConfig,
@@ -42,7 +43,10 @@ pub struct LiquidationContext<P: Provider + Clone + 'static> {
     pub silo: ISiloInstance<P>,
     pub oracle_price_data: OraclePriceData,
     pub watchlist: Arc<RwLock<Vec<(Address, Address, Address)>>>,
+    pub blacklist: Arc<RwLock<HashSet<Address>>>,
     pub borrowers: SharedAddressList,
+    pub liquidation_tx_sender:
+        mpsc::UnboundedSender<(Address, PendingTransactionBuilder<Ethereum>)>,
     pub fast_check_threshold: U256,
     pub fast_check_threshold_same_token: U256,
     pub fast_check_threshold_stable_market: U256,

@@ -23,6 +23,7 @@ pub(crate) async fn liquidate_no_wait<P>(
     swap_data: Bytes,
     max_priority_fee_per_gas: Option<u128>,
     max_fee_per_gas: u128,
+    listen_to_receipt: bool,
 ) where
     P: Provider + Clone + 'static,
 {
@@ -70,6 +71,14 @@ pub(crate) async fn liquidate_no_wait<P>(
                 "Liquidation (no wait) tx sent: {:?}",
                 pending_tx.tx_hash()
             );
+            if listen_to_receipt {
+                let _ = ctx
+                    .liquidation_tx_sender
+                    .send((borrower, pending_tx))
+                    .inspect_err(|e| {
+                        error!(?borrower, "Failed to send liquidation (no wait) tx: {e}");
+                    });
+            }
         }
         Err(e) => {
             error!(?borrower, "Failed to send liquidation (no wait) tx: {e}");

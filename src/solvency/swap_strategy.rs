@@ -268,6 +268,7 @@ async fn try_direct_liquidation<P: Provider + Clone + 'static>(
         swap_data,
         None,
         DEFAULT_MAX_FEE_PER_GAS,
+        true,
     )
     .await;
 
@@ -313,6 +314,7 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
             swap_data.clone(),
             max_priority_fee_per_gas,
             max_fee_per_gas,
+            false,
         )
         .await;
 

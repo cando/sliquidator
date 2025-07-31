@@ -165,6 +165,7 @@ async fn try_direct_same_token_liquidation<P: Provider + Clone + 'static>(
         Bytes::new(),
         None,
         DEFAULT_MAX_FEE_PER_GAS,
+        true,
     )
     .await;
 
@@ -199,6 +200,7 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
             Bytes::new(),
             None,
             DEFAULT_MAX_FEE_PER_GAS,
+            false,
         )
         .await;
 
