@@ -1,11 +1,9 @@
-[package]
-name = "sliquidator"
-version = "0.1.0"
-edition = "2021"
-license = "MIT"
+[workspace]
+resolver = "2"
+members = ["sliquidator", "common"]
 
 
-[dependencies]
+[workspace.dependencies]
 # Alloy for Ethereum types, contracts, and providers
 alloy = { version = "^1.0.9", features = ["full"] }
 

@@ -1,0 +1,47 @@
+[package]
+name = "sliquidator"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+
+[dependencies]
+# Alloy for Ethereum types, contracts, and providers
+alloy = { workspace = true }
+
+# Asynchronous runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
+tokio-util = { workspace = true }
+
+
+# HTTP client for Odos quoting
+reqwest = { workspace = true }
+
+# JSON handling for API payloads
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_with = { workspace = true }
+
+# Hex decoding for Odos response data
+hex = { workspace = true }
+
+# Timestamps and formatting
+chrono = { workspace = true }
+
+# Error handling
+eyre = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+rpassword = { workspace = true }
+tracing-appender = { workspace = true }
+
+# Command-line argument parsing
+clap = { workspace = true }
+clap_derive = { workspace = true }
+
+# Lazy
+once_cell = { workspace = true }
