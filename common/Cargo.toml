@@ -1,0 +1,28 @@
+[package]
+name = "common"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+
+[dependencies]
+# Alloy for Ethereum types, contracts, and providers
+alloy = { workspace = true }
+
+# Asynchronous runtime
+tokio = { workspace = true }
+futures = { workspace = true }
+futures-util = { workspace = true }
+tokio-util = { workspace = true }
+tokio-stream = { workspace = true }
+
+# Timestamps and formatting
+chrono = { workspace = true }
+
+# Error handling
+eyre = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }

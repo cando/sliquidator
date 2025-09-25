@@ -6,11 +6,12 @@ use alloy::{
     providers::{PendingTransactionBuilder, Provider},
     sol,
 };
+use common::oracles::chainlink::SharedChainlinkPrice;
 use tokio::sync::{mpsc, RwLock};
 
 use crate::{
     config::SiloConfig,
-    oracles::{chainlink::SharedChainlinkPrice, hermes::SharedPythPrice},
+    oracles::hermes::SharedPythPrice,
     types::{
         IHookReceiver::IHookReceiverInstance, ILiquidationHelper::ILiquidationHelperInstance,
         ISilo::ISiloInstance, ISiloConfig::ISiloConfigInstance, ISiloLens::ISiloLensInstance,

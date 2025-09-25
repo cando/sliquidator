@@ -49,3 +49,6 @@ clap_derive = "4.5.40"
 
 # Lazy
 once_cell = "1.21.3"
+
+# Internal crates
+common = { path = "common" }

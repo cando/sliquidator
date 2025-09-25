@@ -45,3 +45,6 @@ clap_derive = { workspace = true }
 
 # Lazy
 once_cell = { workspace = true }
+
+# Internal crates
+common = { workspace = true }

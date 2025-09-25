@@ -7,11 +7,12 @@ use std::{collections::HashSet, sync::Arc};
 use alloy::{
     eips::BlockNumberOrTag,
     network::Ethereum,
-    primitives::{Address, U256},
+    primitives::{address, Address, U256},
     providers::{PendingTransactionBuilder, Provider},
     rpc::types::Filter,
 };
 
+use ::common::oracles::chainlink::{chainlink_forward_listener_task, SharedChainlinkPrice};
 use chrono::Timelike;
 use futures::StreamExt;
 use tokio::{
@@ -23,10 +24,7 @@ use tracing::{error, info};
 
 use crate::{
     config::SiloConfig,
-    oracles::{
-        chainlink::{chainlink_forward_listener_task, SharedChainlinkPrice},
-        hermes::{hermes_price_feed_task, SharedPythPrice},
-    },
+    oracles::hermes::{hermes_price_feed_task, SharedPythPrice},
     solvency::{same_token_strategy::same_token_solvency, swap_strategy::swap_solvency},
     types::{
         Borrower,
@@ -41,6 +39,9 @@ use crate::{
 };
 
 const GET_USERS_HEALTH_BATCH_SIZE: usize = 50;
+
+const S_USDC_CHAINLINK_AGGREGATOR_ADDRESS: Address =
+    address!("0x0BdbFF19543B20d0bc2d1eA08deE2be4C0b76743");
 
 pub async fn run_solvency_monitor<P>(
     provider: P,
@@ -146,8 +147,9 @@ where
         }
         OraclePriceData::Chainlink { forwarded_price } => {
             handles.push(tokio::spawn(chainlink_forward_listener_task(
-                ctx.clone(),
+                ctx.provider.clone(),
                 forwarded_price.clone(),
+                S_USDC_CHAINLINK_AGGREGATOR_ADDRESS,
             )));
         }
         OraclePriceData::Redstone => {}

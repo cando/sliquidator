@@ -5,12 +5,12 @@ use alloy::{
     providers::Provider,
     sol_types::SolCall,
 };
+use common::oracles::chainlink::SharedChainlinkPrice;
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
 use crate::{
     oracles::{
-        chainlink::SharedChainlinkPrice,
         hermes::SharedPythPrice,
         simulator::{chainlink_is_borrower_solvent_simulated, pyth_is_borrower_solvent_simulated},
     },

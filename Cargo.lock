@@ -1285,6 +1285,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
+name = "common"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "chrono",
+ "eyre",
+ "futures",
+ "futures-util",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "compression-codecs"
 version = "0.4.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3729,6 +3746,7 @@ dependencies = [
  "chrono",
  "clap",
  "clap_derive",
+ "common",
  "eyre",
  "futures",
  "futures-util",
