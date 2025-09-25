@@ -1293,6 +1293,8 @@ dependencies = [
  "eyre",
  "futures",
  "futures-util",
+ "hex",
+ "once_cell",
  "tokio",
  "tokio-stream",
  "tokio-util",

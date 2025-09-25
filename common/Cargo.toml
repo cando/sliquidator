@@ -16,6 +16,9 @@ futures-util = { workspace = true }
 tokio-util = { workspace = true }
 tokio-stream = { workspace = true }
 
+# Ethereum ABI encoding/decoding and hex utils
+hex = { workspace = true }
+
 # Timestamps and formatting
 chrono = { workspace = true }
 
@@ -26,3 +29,5 @@ eyre = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-appender = { workspace = true }
+
+once_cell = { workspace = true }
