@@ -197,6 +197,26 @@ static TRANSMISSION_SLOTS: Lazy<HashMap<Address, FixedBytes<32>>> = Lazy::new(||
     )])
 });
 
+pub fn get_multiple_chainlink_state_overrides(
+    chainlink_aggregator_address_to_price_map: HashMap<Address, Signed<192, 3>>,
+) -> HashMap<
+    Address,
+    alloy::rpc::types::state::AccountOverride,
+    alloy::primitives::map::FbBuildHasher<20>,
+> {
+    let mut builder = StateOverridesBuilder::default();
+    for (chainlink_aggregator_address, price) in
+        chainlink_aggregator_address_to_price_map.into_iter()
+    {
+        builder = builder.with_state_diff(
+            chainlink_aggregator_address,
+            get_storage_overrides(chainlink_aggregator_address, price),
+        )
+    }
+
+    builder.build()
+}
+
 pub fn get_chainlink_state_overrides(
     chainlink_aggregator_address: Address,
     price: Signed<192, 3>,
@@ -205,6 +225,18 @@ pub fn get_chainlink_state_overrides(
     alloy::rpc::types::state::AccountOverride,
     alloy::primitives::map::FbBuildHasher<20>,
 > {
+    StateOverridesBuilder::default()
+        .with_state_diff(
+            chainlink_aggregator_address,
+            get_storage_overrides(chainlink_aggregator_address, price),
+        )
+        .build()
+}
+
+fn get_storage_overrides(
+    chainlink_aggregator_address: Address,
+    price: Signed<192, 3>,
+) -> Vec<(FixedBytes<32>, FixedBytes<32>)> {
     let encoded_transmission = FixedBytes::<32>::from_slice(&encode_transmission(price));
 
     let storage_overrides = vec![
@@ -217,10 +249,7 @@ pub fn get_chainlink_state_overrides(
             encoded_transmission,
         ),
     ];
-
-    StateOverridesBuilder::default()
-        .with_state_diff(chainlink_aggregator_address, storage_overrides)
-        .build()
+    storage_overrides
 }
 
 /// Encodes the ChainLink Trasmission struct into Solidity's packed storage layout for slot 0.
