@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use alloy::{
     consensus::Transaction,
-    primitives::{address, aliases::I192, Address, FixedBytes, Selector, Signed, U256},
+    primitives::{aliases::I192, Address, FixedBytes, Selector, Signed, U256},
     providers::Provider,
     rpc::types::state::StateOverridesBuilder,
     sol,
@@ -176,27 +176,11 @@ pub async fn chainlink_forward_listener_task<P>(
 //    - Slot keccak256(abi.encode(1, 12)) = s_transmissions[1]:
 //      0xd421a5... → 0x<encoded Transmission struct>
 
-static HOTVARS_SLOTS_11: Lazy<HashMap<Address, FixedBytes<32>>> = Lazy::new(|| {
-    HashMap::from([
-        (
-            address!("0x0BdbFF19543B20d0bc2d1eA08deE2be4C0b76743"), // SONIC -> S/USDC
-            FixedBytes::<32>::from_slice(
-                &<[u8; 32]>::from_hex(
-                    "00000000000000000000000000000000000000000000000000010001392b0203",
-                )
-                .expect("valid hex"),
-            ),
-        ),
-        (
-            address!("0x7fe2ADDE154eB97ad68D5aD70328a1DB13701Bc2"), // SONIC -> WETH/USDC
-            FixedBytes::<32>::from_slice(
-                &<[u8; 32]>::from_hex(
-                    "00000000000000000000000000000000000000000000000000010001392b0203",
-                )
-                .expect("valid hex"),
-            ),
-        ),
-    ])
+static HOTVARS_SLOTS_11: Lazy<FixedBytes<32>> = Lazy::new(|| {
+    FixedBytes::<32>::from_slice(
+        &<[u8; 32]>::from_hex("00000000000000000000000000000000000000000000000000010001392b0203")
+            .expect("valid hex"),
+    )
 });
 
 static TRANSMISSION_SLOT: Lazy<FixedBytes<32>> = Lazy::new(|| {
@@ -216,10 +200,8 @@ pub fn get_multiple_chainlink_state_overrides(
     for (chainlink_aggregator_address, price) in
         chainlink_aggregator_address_to_price_map.into_iter()
     {
-        builder = builder.with_state_diff(
-            chainlink_aggregator_address,
-            get_storage_overrides(chainlink_aggregator_address, price),
-        )
+        builder =
+            builder.with_state_diff(chainlink_aggregator_address, get_storage_overrides(price))
     }
 
     builder.build()
@@ -234,24 +216,15 @@ pub fn get_chainlink_state_overrides(
     alloy::primitives::map::FbBuildHasher<20>,
 > {
     StateOverridesBuilder::default()
-        .with_state_diff(
-            chainlink_aggregator_address,
-            get_storage_overrides(chainlink_aggregator_address, price),
-        )
+        .with_state_diff(chainlink_aggregator_address, get_storage_overrides(price))
         .build()
 }
 
-fn get_storage_overrides(
-    chainlink_aggregator_address: Address,
-    price: Signed<192, 3>,
-) -> Vec<(FixedBytes<32>, FixedBytes<32>)> {
+fn get_storage_overrides(price: Signed<192, 3>) -> Vec<(FixedBytes<32>, FixedBytes<32>)> {
     let encoded_transmission = FixedBytes::<32>::from_slice(&encode_transmission(price));
 
     let storage_overrides = vec![
-        (
-            FixedBytes::<32>::from(U256::from(11)),
-            HOTVARS_SLOTS_11[&chainlink_aggregator_address],
-        ),
+        (FixedBytes::<32>::from(U256::from(11)), *HOTVARS_SLOTS_11),
         (*TRANSMISSION_SLOT, encoded_transmission),
     ];
     storage_overrides
