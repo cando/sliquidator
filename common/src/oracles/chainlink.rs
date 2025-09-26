@@ -191,7 +191,7 @@ static HOTVARS_SLOTS_11: Lazy<HashMap<Address, FixedBytes<32>>> = Lazy::new(|| {
             address!("0x7fe2ADDE154eB97ad68D5aD70328a1DB13701Bc2"), // SONIC -> WETH/USDC
             FixedBytes::<32>::from_slice(
                 &<[u8; 32]>::from_hex(
-                    "00000000000000000000000000000000000000000000000000010001d9c30203",
+                    "00000000000000000000000000000000000000000000000000010001392b0203",
                 )
                 .expect("valid hex"),
             ),
@@ -199,13 +199,10 @@ static HOTVARS_SLOTS_11: Lazy<HashMap<Address, FixedBytes<32>>> = Lazy::new(|| {
     ])
 });
 
-static TRANSMISSION_SLOTS: Lazy<HashMap<Address, FixedBytes<32>>> = Lazy::new(|| {
-    HashMap::from([(
-        address!("0x0BdbFF19543B20d0bc2d1eA08deE2be4C0b76743"), // SONIC -> S/USDC
-        "0xd421a5181c571bba3f01190c922c3b2a896fc1d84e86c9f17ac10e67ebef8b5c"
-            .parse()
-            .expect("valid slot"),
-    )])
+static TRANSMISSION_SLOT: Lazy<FixedBytes<32>> = Lazy::new(|| {
+    "0xd421a5181c571bba3f01190c922c3b2a896fc1d84e86c9f17ac10e67ebef8b5c"
+        .parse()
+        .expect("valid slot")
 });
 
 pub fn get_multiple_chainlink_state_overrides(
@@ -255,10 +252,7 @@ fn get_storage_overrides(
             FixedBytes::<32>::from(U256::from(11)),
             HOTVARS_SLOTS_11[&chainlink_aggregator_address],
         ),
-        (
-            TRANSMISSION_SLOTS[&chainlink_aggregator_address],
-            encoded_transmission,
-        ),
+        (*TRANSMISSION_SLOT, encoded_transmission),
     ];
     storage_overrides
 }
