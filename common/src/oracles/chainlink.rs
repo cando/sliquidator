@@ -177,15 +177,26 @@ pub async fn chainlink_forward_listener_task<P>(
 //      0xd421a5... → 0x<encoded Transmission struct>
 
 static HOTVARS_SLOTS_11: Lazy<HashMap<Address, FixedBytes<32>>> = Lazy::new(|| {
-    HashMap::from([(
-        address!("0x0BdbFF19543B20d0bc2d1eA08deE2be4C0b76743"), // SONIC -> S/USDC
-        FixedBytes::<32>::from_slice(
-            &<[u8; 32]>::from_hex(
-                "00000000000000000000000000000000000000000000000000010001392b0203",
-            )
-            .expect("valid hex"),
+    HashMap::from([
+        (
+            address!("0x0BdbFF19543B20d0bc2d1eA08deE2be4C0b76743"), // SONIC -> S/USDC
+            FixedBytes::<32>::from_slice(
+                &<[u8; 32]>::from_hex(
+                    "00000000000000000000000000000000000000000000000000010001392b0203",
+                )
+                .expect("valid hex"),
+            ),
         ),
-    )])
+        (
+            address!("0x7fe2ADDE154eB97ad68D5aD70328a1DB13701Bc2"), // SONIC -> WETH/USDC
+            FixedBytes::<32>::from_slice(
+                &<[u8; 32]>::from_hex(
+                    "00000000000000000000000000000000000000000000000000010001d9c30203",
+                )
+                .expect("valid hex"),
+            ),
+        ),
+    ])
 });
 
 static TRANSMISSION_SLOTS: Lazy<HashMap<Address, FixedBytes<32>>> = Lazy::new(|| {
