@@ -22,3 +22,4 @@ contract/lib/*
 storage_layout.json
 
 contract/node_modules/*
+contract/src/test.json
