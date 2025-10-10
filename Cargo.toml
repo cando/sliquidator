@@ -30,6 +30,7 @@ serde_with = "3.13.0"
 
 # Hex decoding for Odos response data
 hex = "0.4.3"
+sha2 = "0.10.9"
 
 # Timestamps and formatting
 chrono = { version = "0.4.41", features = ["serde"] }
