@@ -9,10 +9,8 @@ use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    solvency::common::{
-        liquidate_no_wait, DEFAULT_MAX_FEE_PER_GAS, MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
-    },
-    types::{IHookReceiver::maxLiquidationReturn, LiquidationContext},
+    solvency::common::{liquidate_no_wait, MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX},
+    types::{IHookReceiver::maxLiquidationReturn, LiquidationContext, LiquidationType},
 };
 
 pub(crate) async fn same_token_solvency<
@@ -172,8 +170,7 @@ async fn try_direct_same_token_liquidation<
         token, // no swap
         Some(max_debt),
         Bytes::new(),
-        None,
-        DEFAULT_MAX_FEE_PER_GAS,
+        LiquidationType::Standard,
         true,
     )
     .await;
@@ -210,8 +207,7 @@ async fn attempt_multiple_liquidations<
             token,
             None,
             Bytes::new(),
-            None,
-            DEFAULT_MAX_FEE_PER_GAS,
+            LiquidationType::Blind,
             false,
         )
         .await;

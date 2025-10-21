@@ -17,6 +17,7 @@ use alloy::primitives::address;
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::signers::local::PrivateKeySigner;
 
+use alloy::signers::Signer;
 use clap::Parser;
 use eyre::{eyre, Result};
 use futures::future::join_all;
@@ -97,6 +98,8 @@ async fn main() -> Result<()> {
         .await
         .map_err(|e| eyre!("Failed to connect base IPC provider: {e}"))?;
 
+    let chain_id = base_provider.get_chain_id().await?;
+
     info!("Base provider (IPC) connected at {}", &args.base_ipc);
 
     // ---------- broadcast endpoints (NO wallet attached) ----------
@@ -110,7 +113,6 @@ async fn main() -> Result<()> {
     for url in &args.endpoint {
         // No wallet here: we will send raw signed bytes
         let p = ProviderBuilder::new()
-            .with_simple_nonce_management()
             .connect(url)
             .await
             .map_err(|e| eyre!("Failed to connect endpoint {}: {e}", url))?;
@@ -129,7 +131,7 @@ async fn main() -> Result<()> {
     if args.eoa_key.is_empty() {
         // Use base signer as a single EOA bundle
         eoa_fanouts.push(EoaFanout {
-            signer: EthereumWallet::from(base_signer.clone()),
+            signer: EthereumWallet::from(base_signer.clone().with_chain_id(Some(chain_id))),
             endpoints: broadcast_endpoints.clone(),
         });
         info!(
@@ -139,7 +141,9 @@ async fn main() -> Result<()> {
     } else {
         for key_path in &args.eoa_key {
             let pk = read_private_key_from_file(key_path)?;
-            let signer = pk.parse::<PrivateKeySigner>()?;
+            let signer = pk
+                .parse::<PrivateKeySigner>()?
+                .with_chain_id(Some(chain_id));
             info!("EOA loaded: {} (addr: {:?})", key_path, signer.address());
 
             eoa_fanouts.push(EoaFanout {

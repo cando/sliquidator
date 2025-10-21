@@ -9,13 +9,11 @@ use tracing::{error, info};
 
 use crate::{
     config::LIQUIDATOR_ADDRESS,
-    types::{EoaFanout, LiquidationContext, LiquidationData},
+    types::{EoaFanout, LiquidationContext, LiquidationData, LiquidationType},
 };
 
 pub(crate) const MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX: usize = 0;
 pub(crate) const MIN_AMOUNT_FOR_LIQUIDATION_SIMULATED_STRATEGY_INDEX: usize = 1;
-
-pub(crate) const DEFAULT_MAX_FEE_PER_GAS: u128 = 65_000_000_000;
 
 pub(crate) async fn liquidate_no_wait<
     PWatch: Provider + Clone + 'static,
@@ -28,14 +26,13 @@ pub(crate) async fn liquidate_no_wait<
     collateral_token: Address,
     max_debt: Option<U256>,
     swap_data: Bytes,
-    max_priority_fee_per_gas: Option<u128>,
-    max_fee_per_gas: u128,
+    liquidation_type: LiquidationType,
     listen_to_receipt: bool,
 ) {
-    let liquidation_call = if let Some(max_debt_to_cover) = max_debt {
-        crate::types::ILiquidationHelper::executeLiquidationCall {
+    let liquidation_call = match liquidation_type {
+        LiquidationType::Standard => crate::types::ILiquidationHelper::executeLiquidationCall {
             debtAsset: debt_token,
-            maxDebtToCover: max_debt_to_cover,
+            maxDebtToCover: max_debt.expect("max_debt must be provided for Standard liquidation"),
             liquidation: LiquidationData {
                 hook: ctx.config.hook_address,
                 collateralAsset: collateral_token,
@@ -44,9 +41,8 @@ pub(crate) async fn liquidate_no_wait<
             swapData: swap_data.clone(),
             silo: ctx.config.silo_address,
         }
-        .abi_encode()
-    } else {
-        crate::types::ILiquidationHelper::executeLiquidationBlindCall {
+        .abi_encode(),
+        LiquidationType::Blind => crate::types::ILiquidationHelper::executeLiquidationBlindCall {
             debtAsset: debt_token,
             liquidation: LiquidationData {
                 hook: ctx.config.hook_address,
@@ -57,15 +53,57 @@ pub(crate) async fn liquidate_no_wait<
             silo: ctx.config.silo_address,
             hook: ctx.config.hook_address,
         }
-        .abi_encode()
+        .abi_encode(),
+        LiquidationType::Pyth(price_data) => {
+            crate::types::ILiquidationHelper::updatePythPriceFeedsAndExecuteLiquidationCall {
+                silo: ctx.config.silo_address,
+                debtAsset: debt_token,
+                liquidation: LiquidationData {
+                    hook: ctx.config.hook_address,
+                    collateralAsset: collateral_token,
+                    borrower,
+                },
+                swapData: swap_data.clone(),
+                priceUpdate: price_data,
+            }
+            .abi_encode()
+        }
+    };
+
+    let nonce = match ctx.provider.get_transaction_count(helper.address()).await {
+        Ok(nonce) => nonce,
+        Err(e) => {
+            error!(?borrower, "Failed to fetch nonce: {e}");
+            return;
+        }
+    };
+
+    let gas = match ctx.provider.get_gas_price().await {
+        Ok(gas) => gas,
+        Err(e) => {
+            error!(?borrower, "Failed to estimate gas: {e}");
+            return;
+        }
+    };
+
+    let gas_fee = match ctx.provider.get_max_priority_fee_per_gas().await {
+        Ok(fee) => fee,
+        Err(e) => {
+            error!(?borrower, "Failed to estimate gas fee: {e}");
+            return;
+        }
     };
 
     let tx = TransactionRequest::default()
+        .with_from(helper.address())
         .with_to(LIQUIDATOR_ADDRESS)
+        .with_nonce(nonce)
         .with_input(liquidation_call)
         .with_gas_limit(5_000_000u64)
-        .with_max_fee_per_gas(max_fee_per_gas)
-        .with_max_priority_fee_per_gas(max_priority_fee_per_gas.unwrap_or(DEFAULT_MAX_FEE_PER_GAS));
+        .with_gas_price(gas + gas_fee);
+
+    dbg!(&tx);
+
     let tx_envelope = tx.build(&helper.signer).await.unwrap();
 
     let mut tasks = Vec::new();

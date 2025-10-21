@@ -2,7 +2,7 @@ use std::{collections::HashSet, sync::Arc};
 
 use alloy::{
     network::{Ethereum, EthereumWallet},
-    primitives::{Address, FixedBytes, U256},
+    primitives::{Address, Bytes, FixedBytes, U256},
     providers::{PendingTransactionBuilder, Provider},
     sol,
 };
@@ -38,6 +38,18 @@ pub enum OraclePriceData {
 pub struct EoaFanout<P: Provider + Clone + 'static> {
     pub signer: EthereumWallet,
     pub endpoints: Vec<P>,
+}
+
+impl<P: Provider + Clone + 'static> EoaFanout<P> {
+    pub fn address(&self) -> alloy::primitives::Address {
+        self.signer.default_signer().address()
+    }
+}
+
+pub enum LiquidationType {
+    Standard,
+    Blind,
+    Pyth(Vec<Bytes>),
 }
 
 #[derive(Clone)]

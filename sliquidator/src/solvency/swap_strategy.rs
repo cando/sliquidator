@@ -1,10 +1,8 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy::{
-    network::TransactionBuilder,
     primitives::{aliases::I24, Address, Bytes, FixedBytes, U160, U256},
     providers::Provider,
-    rpc::types::TransactionRequest,
     sol_types::SolCall,
 };
 use common::oracles::chainlink::SharedChainlinkPrice;
@@ -18,11 +16,11 @@ use crate::{
         simulator::{chainlink_is_borrower_solvent_simulated, pyth_is_borrower_solvent_simulated},
     },
     solvency::common::{
-        liquidate_no_wait, DEFAULT_MAX_FEE_PER_GAS, MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
+        liquidate_no_wait, MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
         MIN_AMOUNT_FOR_LIQUIDATION_SIMULATED_STRATEGY_INDEX,
     },
     types::{
-        EoaFanout, IHookReceiver::maxLiquidationReturn, LiquidationContext, LiquidationData,
+        EoaFanout, IHookReceiver::maxLiquidationReturn, LiquidationContext, LiquidationType,
         OraclePriceData,
     },
 };
@@ -133,8 +131,6 @@ async fn try_chainlink_simulated_liquidation<
                     collateral_token,
                     max_debt,
                     collateral_to_liquidate,
-                    price_data.max_priority_fee_per_gas,
-                    price_data.max_fee_per_gas,
                 )
                 .await;
             } else {
@@ -279,8 +275,7 @@ async fn try_direct_liquidation<
         collateral_token,
         Some(max_debt),
         swap_data,
-        None,
-        DEFAULT_MAX_FEE_PER_GAS,
+        LiquidationType::Standard,
         true,
     )
     .await;
@@ -303,8 +298,6 @@ async fn attempt_multiple_liquidations<
     collateral_token: Address,
     max_debt_to_cover: U256,
     collateral_to_liquidate: U256,
-    max_priority_fee_per_gas: Option<u128>,
-    max_fee_per_gas: u128,
 ) {
     let swap_data = get_swap_data(
         ctx.config.swap_pool_tick_spacing,
@@ -323,8 +316,7 @@ async fn attempt_multiple_liquidations<
             collateral_token,
             Some(max_debt_to_cover),
             swap_data.clone(),
-            max_priority_fee_per_gas,
-            max_fee_per_gas,
+            LiquidationType::Standard,
             false,
         )
         .await;
@@ -351,59 +343,19 @@ pub(crate) async fn update_pyth_price_then_liquidate_no_wait<
     price_data: Vec<Bytes>,
 ) {
     info!(collateral_token = ?collateral_token, debt_token = ?debt_token, ?borrower, "🚀 Sending Pyth liquidation tx...");
-    let liquidation_call =
-        crate::types::ILiquidationHelper::updatePythPriceFeedsAndExecuteLiquidationCall {
-            silo: ctx.config.silo_address,
-            debtAsset: debt_token,
-            liquidation: LiquidationData {
-                hook: ctx.config.hook_address,
-                collateralAsset: collateral_token,
-                borrower,
-            },
-            swapData: swap_data.clone(),
-            priceUpdate: price_data,
-        }
-        .abi_encode();
 
-    let tx = TransactionRequest::default()
-        .with_to(LIQUIDATOR_ADDRESS)
-        .with_input(liquidation_call)
-        .with_gas_limit(5_000_000u64);
-
-    let tx_envelope = tx.build(&helper.signer).await.unwrap();
-
-    let mut tasks = Vec::new();
-
-    for p in &helper.endpoints {
-        let p = p.clone();
-        let tx_envelope = tx_envelope.clone();
-        tasks.push(tokio::spawn(async move {
-            p.send_tx_envelope(tx_envelope).await
-        }));
-    }
-
-    let results = futures::future::join_all(tasks).await;
-
-    for result in results {
-        match result {
-            Ok(Ok(pending_tx)) => {
-                info!(
-                    ?borrower,
-                    "Pyth Liquidation tx sent: {:?}",
-                    pending_tx.tx_hash()
-                );
-            }
-            Ok(Err(e)) => {
-                error!(?borrower, "Failed to send pyth liquidation tx: {e}");
-            }
-            Err(e) => {
-                error!(
-                    ?borrower,
-                    "Task join error when sending pyth liquidation tx: {e}"
-                );
-            }
-        }
-    }
+    liquidate_no_wait(
+        ctx.clone(),
+        helper.clone(),
+        borrower,
+        debt_token,
+        collateral_token,
+        None,
+        swap_data.clone(),
+        LiquidationType::Pyth(price_data),
+        false,
+    )
+    .await;
 
     // Remove the borrower from the watchlist after attempting liquidation
     // in order to avoid repeated attempts
