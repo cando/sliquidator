@@ -1,7 +1,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use alloy::{
-    network::Ethereum,
+    network::{Ethereum, EthereumWallet},
     primitives::{Address, FixedBytes, U256},
     providers::{PendingTransactionBuilder, Provider},
     sol,
@@ -13,8 +13,8 @@ use crate::{
     config::SiloConfig,
     oracles::hermes::SharedPythPrice,
     types::{
-        IHookReceiver::IHookReceiverInstance, ILiquidationHelper::ILiquidationHelperInstance,
-        ISilo::ISiloInstance, ISiloConfig::ISiloConfigInstance, ISiloLens::ISiloLensInstance,
+        IHookReceiver::IHookReceiverInstance, ISilo::ISiloInstance,
+        ISiloConfig::ISiloConfigInstance, ISiloLens::ISiloLensInstance,
     },
 };
 
@@ -33,15 +33,23 @@ pub enum OraclePriceData {
     Redstone,
 }
 
+/// A signer + a set of broadcast endpoints (no wallets attached)
 #[derive(Clone)]
-pub struct LiquidationContext<P: Provider + Clone + 'static> {
-    pub provider: P,
-    pub lens: ISiloLensInstance<P>,
-    pub helpers: Vec<ILiquidationHelperInstance<P>>,
-    pub silo_config: ISiloConfigInstance<P>,
+pub struct EoaFanout<P: Provider + Clone + 'static> {
+    pub signer: EthereumWallet,
+    pub endpoints: Vec<P>,
+}
+
+#[derive(Clone)]
+pub struct LiquidationContext<PWatch: Provider + Clone + 'static, PSend: Provider + Clone + 'static>
+{
+    pub provider: PWatch,
+    pub lens: ISiloLensInstance<PWatch>,
+    pub helpers: Vec<EoaFanout<PSend>>,
+    pub silo_config: ISiloConfigInstance<PWatch>,
     pub config: SiloConfig,
-    pub hook: IHookReceiverInstance<P>,
-    pub silo: ISiloInstance<P>,
+    pub hook: IHookReceiverInstance<PWatch>,
+    pub silo: ISiloInstance<PWatch>,
     pub oracle_price_data: OraclePriceData,
     pub watchlist: Arc<RwLock<Vec<(Address, Address, Address)>>>,
     pub blacklist: Arc<RwLock<HashSet<Address>>>,

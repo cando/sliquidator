@@ -1,8 +1,10 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy::{
+    network::TransactionBuilder,
     primitives::{aliases::I24, Address, Bytes, FixedBytes, U160, U256},
     providers::Provider,
+    rpc::types::TransactionRequest,
     sol_types::SolCall,
 };
 use common::oracles::chainlink::SharedChainlinkPrice;
@@ -10,6 +12,7 @@ use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 
 use crate::{
+    config::LIQUIDATOR_ADDRESS,
     oracles::{
         hermes::SharedPythPrice,
         simulator::{chainlink_is_borrower_solvent_simulated, pyth_is_borrower_solvent_simulated},
@@ -19,13 +22,16 @@ use crate::{
         MIN_AMOUNT_FOR_LIQUIDATION_SIMULATED_STRATEGY_INDEX,
     },
     types::{
-        IHookReceiver::maxLiquidationReturn, ILiquidationHelper::ILiquidationHelperInstance,
-        LiquidationContext, LiquidationData, OraclePriceData,
+        EoaFanout, IHookReceiver::maxLiquidationReturn, LiquidationContext, LiquidationData,
+        OraclePriceData,
     },
 };
 
-pub(crate) async fn swap_solvency(
-    ctx: LiquidationContext<impl Provider + Clone + 'static>,
+pub(crate) async fn swap_solvency<
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
+>(
+    ctx: LiquidationContext<PWatch, PSend>,
     borrower: Address,
     debt_token: Address,
     collateral_token: Address,
@@ -89,8 +95,11 @@ pub(crate) async fn swap_solvency(
     }
 }
 
-async fn try_chainlink_simulated_liquidation<P: Provider + Clone + 'static>(
-    ctx: &LiquidationContext<P>,
+async fn try_chainlink_simulated_liquidation<
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
+>(
+    ctx: &LiquidationContext<PWatch, PSend>,
     borrower: Address,
     debt_token: Address,
     collateral_token: Address,
@@ -143,8 +152,11 @@ async fn try_chainlink_simulated_liquidation<P: Provider + Clone + 'static>(
     }
 }
 
-pub(crate) async fn try_pyth_simulated_liquidation(
-    ctx: LiquidationContext<impl Provider + Clone + 'static>,
+pub(crate) async fn try_pyth_simulated_liquidation<
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
+>(
+    ctx: LiquidationContext<PWatch, PSend>,
     debt_token: Address,
     collateral_token: Address,
     price_feed: &SharedPythPrice,
@@ -188,7 +200,6 @@ pub(crate) async fn try_pyth_simulated_liquidation(
                     );
 
                     let swap_data = get_swap_data(
-                        &ctx.helpers[0].clone(),
                         ctx.config.swap_pool_tick_spacing,
                         collateral_token,
                         debt_token,
@@ -226,8 +237,11 @@ pub(crate) async fn try_pyth_simulated_liquidation(
     }
 }
 
-async fn try_direct_liquidation<P: Provider + Clone + 'static>(
-    ctx: &LiquidationContext<P>,
+async fn try_direct_liquidation<
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
+>(
+    ctx: &LiquidationContext<PWatch, PSend>,
     borrower: Address,
     debt_token: Address,
     collateral_token: Address,
@@ -250,7 +264,6 @@ async fn try_direct_liquidation<P: Provider + Clone + 'static>(
     info!(?borrower, max_debt = %max_debt, "🚨 Borrower is insolvent → proceeding with direct liquidation.");
 
     let swap_data = get_swap_data(
-        &ctx.helpers[0].clone(),
         ctx.config.swap_pool_tick_spacing,
         collateral_token,
         debt_token,
@@ -280,8 +293,11 @@ async fn try_direct_liquidation<P: Provider + Clone + 'static>(
         .retain(|(w, _, _)| *w != borrower);
 }
 
-async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
-    ctx: &LiquidationContext<P>,
+async fn attempt_multiple_liquidations<
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
+>(
+    ctx: &LiquidationContext<PWatch, PSend>,
     borrower: Address,
     debt_token: Address,
     collateral_token: Address,
@@ -290,23 +306,18 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
     max_priority_fee_per_gas: Option<u128>,
     max_fee_per_gas: u128,
 ) {
-    let num_helpers = ctx.helpers.len();
+    let swap_data = get_swap_data(
+        ctx.config.swap_pool_tick_spacing,
+        collateral_token,
+        debt_token,
+        collateral_to_liquidate,
+    )
+    .await;
 
-    for i in 0..5 {
-        let helper = ctx.helpers[i % num_helpers].clone();
-
-        let swap_data = get_swap_data(
-            &helper,
-            ctx.config.swap_pool_tick_spacing,
-            collateral_token,
-            debt_token,
-            collateral_to_liquidate,
-        )
-        .await;
-
+    for helper in ctx.helpers.iter() {
         liquidate_no_wait(
             ctx.clone(),
-            helper,
+            helper.clone(),
             borrower,
             debt_token,
             collateral_token,
@@ -317,8 +328,6 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
             false,
         )
         .await;
-
-        sleep(Duration::from_millis(20)).await;
     }
 
     // Remove the borrower from the watchlist after attempting liquidations
@@ -329,46 +338,70 @@ async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
         .retain(|(w, _, _)| *w != borrower);
 }
 
-pub(crate) async fn update_pyth_price_then_liquidate_no_wait<P>(
-    ctx: LiquidationContext<P>,
-    helper: ILiquidationHelperInstance<P>,
+pub(crate) async fn update_pyth_price_then_liquidate_no_wait<
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
+>(
+    ctx: LiquidationContext<PWatch, PSend>,
+    helper: EoaFanout<PSend>,
     borrower: Address,
     debt_token: Address,
     collateral_token: Address,
     swap_data: Bytes,
     price_data: Vec<Bytes>,
-) where
-    P: Provider + Clone + 'static,
-{
+) {
     info!(collateral_token = ?collateral_token, debt_token = ?debt_token, ?borrower, "🚀 Sending Pyth liquidation tx...");
-    let liquidation_call = helper
-        .updatePythPriceFeedsAndExecuteLiquidation(
-            ctx.config.silo_address,
-            debt_token,
-            LiquidationData {
+    let liquidation_call =
+        crate::types::ILiquidationHelper::updatePythPriceFeedsAndExecuteLiquidationCall {
+            silo: ctx.config.silo_address,
+            debtAsset: debt_token,
+            liquidation: LiquidationData {
                 hook: ctx.config.hook_address,
                 collateralAsset: collateral_token,
                 borrower,
             },
-            swap_data,
-            price_data,
-        )
-        .gas(5_000_000u64)
-        .max_fee_per_gas(65_000_000_000u128)
-        .max_priority_fee_per_gas(65_000_000_000u128)
-        .send()
-        .await;
-
-    match liquidation_call {
-        Ok(pending_tx) => {
-            info!(
-                ?borrower,
-                "Pyth Liquidation tx sent: {:?}",
-                pending_tx.tx_hash()
-            );
+            swapData: swap_data.clone(),
+            priceUpdate: price_data,
         }
-        Err(e) => {
-            error!(?borrower, "Failed to send pyth liquidation tx: {e}");
+        .abi_encode();
+
+    let tx = TransactionRequest::default()
+        .with_to(LIQUIDATOR_ADDRESS)
+        .with_input(liquidation_call)
+        .with_gas_limit(5_000_000u64);
+
+    let tx_envelope = tx.build(&helper.signer).await.unwrap();
+
+    let mut tasks = Vec::new();
+
+    for p in &helper.endpoints {
+        let p = p.clone();
+        let tx_envelope = tx_envelope.clone();
+        tasks.push(tokio::spawn(async move {
+            p.send_tx_envelope(tx_envelope).await
+        }));
+    }
+
+    let results = futures::future::join_all(tasks).await;
+
+    for result in results {
+        match result {
+            Ok(Ok(pending_tx)) => {
+                info!(
+                    ?borrower,
+                    "Pyth Liquidation tx sent: {:?}",
+                    pending_tx.tx_hash()
+                );
+            }
+            Ok(Err(e)) => {
+                error!(?borrower, "Failed to send pyth liquidation tx: {e}");
+            }
+            Err(e) => {
+                error!(
+                    ?borrower,
+                    "Task join error when sending pyth liquidation tx: {e}"
+                );
+            }
         }
     }
 
@@ -380,16 +413,12 @@ pub(crate) async fn update_pyth_price_then_liquidate_no_wait<P>(
         .retain(|(w, _, _)| *w != borrower);
 }
 
-async fn get_swap_data<P>(
-    helper: &ILiquidationHelperInstance<P>,
+async fn get_swap_data(
     tick_spacing: usize,
     collateral_token: Address,
     debt_token: Address,
     collateral_to_liquidate: U256,
-) -> Bytes
-where
-    P: Provider + Clone + 'static,
-{
+) -> Bytes {
     if collateral_token != debt_token {
         let amount_for_swap = collateral_to_liquidate * U256::from(995) / U256::from(1000);
 
@@ -398,7 +427,7 @@ where
                 tokenIn: collateral_token,
                 tokenOut: debt_token,
                 tickSpacing: I24::unchecked_from(tick_spacing),
-                recipient: *helper.address(),
+                recipient: LIQUIDATOR_ADDRESS,
                 deadline: U256::from(
                     SystemTime::now()
                         .duration_since(UNIX_EPOCH)

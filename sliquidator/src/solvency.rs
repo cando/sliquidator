@@ -27,9 +27,8 @@ use crate::{
     oracles::hermes::{hermes_price_feed_task, SharedPythPrice},
     solvency::{same_token_strategy::same_token_solvency, swap_strategy::swap_solvency},
     types::{
-        Borrower,
+        Borrower, EoaFanout,
         IHookReceiver::{self},
-        ILiquidationHelper::ILiquidationHelperInstance,
         ISilo::{self},
         ISiloConfig::{self},
         ISiloLens::ISiloLensInstance,
@@ -43,10 +42,10 @@ const GET_USERS_HEALTH_BATCH_SIZE: usize = 50;
 const S_USDC_CHAINLINK_AGGREGATOR_ADDRESS: Address =
     address!("0x0BdbFF19543B20d0bc2d1eA08deE2be4C0b76743");
 
-pub async fn run_solvency_monitor<P>(
-    provider: P,
-    lens: ISiloLensInstance<P>,
-    helper: Vec<ILiquidationHelperInstance<P>>,
+pub async fn run_solvency_monitor<PWatch, PSend>(
+    provider: PWatch,
+    lens: ISiloLensInstance<PWatch>,
+    helpers: Vec<EoaFanout<PSend>>,
     config: SiloConfig,
     full_refresh_secs: u64,
     near_insolvency_check_millis: u64,
@@ -55,7 +54,8 @@ pub async fn run_solvency_monitor<P>(
     fast_check_solvency_threshold_stable_market_percentage: f64,
 ) -> Vec<JoinHandle<()>>
 where
-    P: Provider + Clone + 'static,
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
 {
     let hook = IHookReceiver::new(config.hook_address, provider.clone());
     let silo = ISilo::new(config.silo_address, provider.clone());
@@ -108,7 +108,7 @@ where
     let ctx = LiquidationContext {
         provider,
         lens,
-        helpers: helper,
+        helpers,
         silo_config,
         config: config.clone(),
         hook,
@@ -158,8 +158,11 @@ where
     handles
 }
 
-async fn refresh_watchlist_task<P: Provider + Clone + 'static>(
-    ctx: LiquidationContext<P>,
+async fn refresh_watchlist_task<
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
+>(
+    ctx: LiquidationContext<PWatch, PSend>,
     full_refresh_secs: u64,
 ) {
     loop {
@@ -243,9 +246,10 @@ fn write_borrowers_to_file(path: &str, borrowers: &HashSet<Address>) {
         .unwrap_or_else(|e| error!("Failed to write to borrowers file for {}: {e}", &path));
 }
 
-async fn borrower_listener_task<P>(ctx: LiquidationContext<P>)
+async fn borrower_listener_task<PWatch, PSend>(ctx: LiquidationContext<PWatch, PSend>)
 where
-    P: Provider + Clone + 'static,
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
 {
     let filter = Filter::new()
         .address(ctx.config.debt_token_address)
@@ -302,8 +306,11 @@ where
     }
 }
 
-async fn solvency_monitor_task<P: Provider + Clone + 'static>(
-    ctx: LiquidationContext<P>,
+async fn solvency_monitor_task<
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
+>(
+    ctx: LiquidationContext<PWatch, PSend>,
     near_insolvency_check_millis: u64,
 ) {
     loop {
@@ -332,8 +339,11 @@ async fn solvency_monitor_task<P: Provider + Clone + 'static>(
     }
 }
 
-async fn receipt_monitor_task<P: Provider + Clone + 'static>(
-    ctx: LiquidationContext<P>,
+async fn receipt_monitor_task<
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
+>(
+    ctx: LiquidationContext<PWatch, PSend>,
     mut tx_receiver: mpsc::UnboundedReceiver<(Address, PendingTransactionBuilder<Ethereum>)>,
 ) {
     while let Some((borrower, pending_tx)) = tx_receiver.recv().await {

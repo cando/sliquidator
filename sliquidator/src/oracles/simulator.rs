@@ -9,14 +9,14 @@ use once_cell::sync::Lazy;
 
 use crate::types::LiquidationContext;
 
-async fn is_borrower_solvent_simulated<P>(
-    ctx: &LiquidationContext<P>,
+async fn is_borrower_solvent_simulated<
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
+>(
+    ctx: &LiquidationContext<PWatch, PSend>,
     borrower: Address,
     state_override: StateOverride,
-) -> eyre::Result<(bool, U256, U256)>
-where
-    P: Provider + Clone + 'static,
-{
+) -> eyre::Result<(bool, U256, U256)> {
     let multicall = ctx
         .provider
         .multicall()
@@ -40,14 +40,14 @@ static S_USDC_CHAINLINK_ADDRESS: Lazy<Address> = Lazy::new(|| {
         .expect("valid address")
 });
 
-pub async fn chainlink_is_borrower_solvent_simulated<P>(
-    ctx: &LiquidationContext<P>,
+pub async fn chainlink_is_borrower_solvent_simulated<
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
+>(
+    ctx: &LiquidationContext<PWatch, PSend>,
     borrower: Address,
     price: Signed<192, 3>,
-) -> eyre::Result<(bool, U256, U256)>
-where
-    P: Provider + Clone + 'static,
-{
+) -> eyre::Result<(bool, U256, U256)> {
     let state_override = get_chainlink_state_overrides(*S_USDC_CHAINLINK_ADDRESS, price);
 
     is_borrower_solvent_simulated(ctx, borrower, state_override).await
@@ -60,18 +60,18 @@ static PYTH_ORACLE_ADDRESS: Lazy<Address> = Lazy::new(|| {
         .expect("valid address")
 });
 
-pub async fn pyth_is_borrower_solvent_simulated<P>(
-    ctx: &LiquidationContext<P>,
+pub async fn pyth_is_borrower_solvent_simulated<
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
+>(
+    ctx: &LiquidationContext<PWatch, PSend>,
     borrower: Address,
     publish_time: u64,
     expo: i32,
     price: i64,
     conf: u64,
     slot_0: &FixedBytes<32>,
-) -> eyre::Result<(bool, U256, U256)>
-where
-    P: Provider + Clone + 'static,
-{
+) -> eyre::Result<(bool, U256, U256)> {
     let encoded = encode_priceinfo_slot0(publish_time, expo, price, conf);
     let value = FixedBytes::<32>::from_slice(&encoded);
 

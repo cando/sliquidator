@@ -15,8 +15,11 @@ use crate::{
     types::{IHookReceiver::maxLiquidationReturn, LiquidationContext},
 };
 
-pub(crate) async fn same_token_solvency(
-    ctx: LiquidationContext<impl Provider + Clone + 'static>,
+pub(crate) async fn same_token_solvency<
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
+>(
+    ctx: LiquidationContext<PWatch, PSend>,
     borrower: Address,
     debt_token: Address,
 ) {
@@ -42,8 +45,11 @@ pub(crate) async fn same_token_solvency(
     }
 }
 
-async fn try_ltv_projection_liquidation<P: Provider + Clone + 'static>(
-    ctx: &LiquidationContext<P>,
+async fn try_ltv_projection_liquidation<
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
+>(
+    ctx: &LiquidationContext<PWatch, PSend>,
     borrower: Address,
     token: Address,
 ) {
@@ -130,8 +136,11 @@ async fn try_ltv_projection_liquidation<P: Provider + Clone + 'static>(
     }
 }
 
-async fn try_direct_same_token_liquidation<P: Provider + Clone + 'static>(
-    ctx: &LiquidationContext<P>,
+async fn try_direct_same_token_liquidation<
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
+>(
+    ctx: &LiquidationContext<PWatch, PSend>,
     borrower: Address,
     token: Address,
     liquidation: maxLiquidationReturn,
@@ -177,8 +186,11 @@ async fn try_direct_same_token_liquidation<P: Provider + Clone + 'static>(
         .retain(|(w, _, _)| *w != borrower);
 }
 
-async fn attempt_multiple_liquidations<P: Provider + Clone + 'static>(
-    ctx: &LiquidationContext<P>,
+async fn attempt_multiple_liquidations<
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
+>(
+    ctx: &LiquidationContext<PWatch, PSend>,
     borrower: Address,
     token: Address,
 ) {
