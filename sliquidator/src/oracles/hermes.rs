@@ -6,7 +6,7 @@ use serde_with::{serde_as, DisplayFromStr};
 use std::sync::Arc;
 use tokio::{io::AsyncBufReadExt, sync::RwLock, time::Duration};
 use tokio_util::io::StreamReader;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
 #[serde_as]
 #[derive(Debug, Clone, Deserialize)]
@@ -83,7 +83,7 @@ async fn stream_once(
                             *w = Some((update.price.clone(), event.binary.data.clone()));
                         }
 
-                        debug!(
+                        info!(
                             "[hermes] {} = {} (conf: {}) @ {}",
                             update.id,
                             update.price.price,
