@@ -1,7 +1,7 @@
 use alloy::{
     network::TransactionBuilder,
     primitives::{Address, Bytes, U256},
-    providers::Provider,
+    providers::{PendingTransactionBuilder, PendingTransactionConfig, Provider},
     rpc::types::TransactionRequest,
     sol_types::SolCall,
 };
@@ -102,8 +102,6 @@ pub(crate) async fn liquidate_no_wait<
         .with_gas_limit(5_000_000u64)
         .with_gas_price(gas + gas_fee);
 
-    dbg!(&tx);
-
     let tx_envelope = tx.build(&helper.signer).await.unwrap();
 
     let mut tasks = Vec::new();
@@ -121,15 +119,19 @@ pub(crate) async fn liquidate_no_wait<
     for liquidation_call in results {
         match liquidation_call {
             Ok(Ok(pending_tx)) => {
-                info!(
-                    ?borrower,
-                    "Liquidation (no wait) tx sent: {:?}",
-                    pending_tx.tx_hash()
+                let hash = *pending_tx.tx_hash();
+                drop(pending_tx);
+
+                let pending_tx_watch = PendingTransactionBuilder::from_config(
+                    ctx.provider.root().clone(),
+                    PendingTransactionConfig::new(hash),
                 );
+
+                info!(?borrower, "Liquidation (no wait) tx sent: {:?}", hash);
                 if listen_to_receipt {
                     let _ = ctx
                         .liquidation_tx_sender
-                        .send((borrower, pending_tx))
+                        .send((borrower, pending_tx_watch))
                         .inspect_err(|e| {
                             error!(?borrower, "Failed to send liquidation (no wait) tx: {e}");
                         });

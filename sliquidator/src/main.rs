@@ -113,6 +113,7 @@ async fn main() -> Result<()> {
     for url in &args.endpoint {
         // No wallet here: we will send raw signed bytes
         let p = ProviderBuilder::new()
+            .disable_recommended_fillers()
             .connect(url)
             .await
             .map_err(|e| eyre!("Failed to connect endpoint {}: {e}", url))?;

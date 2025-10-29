@@ -5,7 +5,7 @@ members = ["sliquidator", "common"]
 
 [workspace.dependencies]
 # Alloy for Ethereum types, contracts, and providers
-alloy = { version = "^1.0.9", features = ["full"] }
+alloy = { version = "^1.0.40", features = ["full"] }
 
 # Asynchronous runtime
 tokio = { version = "1.45.1", features = ["full"] }
