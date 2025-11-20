@@ -3,7 +3,7 @@
     "fast_check_solvency_threshold_same_token_percentage": 0.05,
     "fast_check_solvency_threshold_stable_market_percentage": 0.005,
     "all_borrowers_full_health_refresh_secs": 30,
-    "near_insolvency_check_millis": 20,
+    "near_insolvency_check_millis": 5,
     "silos": [
         {
             "_": "SIL00 (S) -  Market 20 (S/USDC)",
