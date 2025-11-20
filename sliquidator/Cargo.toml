@@ -48,3 +48,6 @@ once_cell = { workspace = true }
 
 # Internal crates
 common = { workspace = true }
+
+# Hermes client
+pyth-hermes-client-rust = "0.0.1"

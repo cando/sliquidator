@@ -210,7 +210,7 @@ pub(crate) async fn try_pyth_simulated_liquidation<
                         debt_token,
                         collateral_token,
                         swap_data,
-                        p.1.clone()
+                        vec![p.1.clone()]
                             .into_iter()
                             .map(|b| {
                                 let hex_bytes = alloy::hex::decode(b).expect("Invalid hex string");

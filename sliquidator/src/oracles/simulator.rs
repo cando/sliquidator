@@ -66,7 +66,7 @@ pub async fn pyth_is_borrower_solvent_simulated<
 >(
     ctx: &LiquidationContext<PWatch, PSend>,
     borrower: Address,
-    publish_time: u64,
+    publish_time: i64,
     expo: i32,
     price: i64,
     conf: u64,
@@ -92,7 +92,7 @@ pub async fn pyth_is_borrower_solvent_simulated<
 ///   [12..20] ← int64 price
 ///   [ 4..12] ← uint64 conf
 /// [0..4] is zero-padded
-fn encode_priceinfo_slot0(publish_time: u64, expo: i32, price: i64, conf: u64) -> [u8; 32] {
+fn encode_priceinfo_slot0(publish_time: i64, expo: i32, price: i64, conf: u64) -> [u8; 32] {
     let mut slot0 = [0u8; 32];
 
     slot0[4..12].copy_from_slice(&conf.to_be_bytes());
