@@ -1,3 +1,4 @@
+use alloy::primitives::Bytes;
 use pyth_hermes_client_rust::{
     backoff::HermesExponentialBackoffBuilder,
     client::HermesClientBuilder,
@@ -6,6 +7,8 @@ use pyth_hermes_client_rust::{
     },
 };
 
+use base64::prelude::*;
+use eyre::eyre;
 use std::sync::Arc;
 use tokio::{pin, sync::RwLock};
 use tracing::{error, info, warn};
@@ -61,7 +64,7 @@ pub async fn hermes_price_feed_task(price_ids: Vec<String>, shared_price: Shared
 
                 info!(
                     "[hermes] {} = {} @ {}",
-                    price_feed.id, price_feed.price.price, price_feed.price.publish_time
+                    price_feed.id, price_feed.price.price, price_feed.price.publish_time,
                 );
             }
             HermesServerMessage::Response(response) => match response {
@@ -75,4 +78,17 @@ pub async fn hermes_price_feed_task(price_ids: Vec<String>, shared_price: Shared
         }
     }
     warn!("[hermes] stream closed after full read");
+}
+
+pub fn decode_pyth_update_b64(s: &str) -> eyre::Result<Bytes> {
+    let s = s.trim();
+    let raw = BASE64_STANDARD
+        .decode(s)
+        .map_err(|e| eyre!("invalid base64 for Pyth update: {e}"))?;
+    if !raw.starts_with(b"PNAU") {
+        return Err(eyre!(
+            "decoded bytes do not start with PNAU (Pyth update header)"
+        ));
+    }
+    Ok(Bytes::from(raw))
 }

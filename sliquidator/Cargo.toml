@@ -51,3 +51,5 @@ common = { workspace = true }
 
 # Hermes client
 pyth-hermes-client-rust = "0.0.1"
+
+base64 = { workspace = true }

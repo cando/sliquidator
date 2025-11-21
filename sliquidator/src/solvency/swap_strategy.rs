@@ -12,7 +12,7 @@ use tracing::{debug, error, info, warn};
 use crate::{
     config::LIQUIDATOR_ADDRESS,
     oracles::{
-        hermes::SharedPythPrice,
+        hermes::{decode_pyth_update_b64, SharedPythPrice},
         simulator::{chainlink_is_borrower_solvent_simulated, pyth_is_borrower_solvent_simulated},
     },
     solvency::common::{
@@ -203,6 +203,14 @@ pub(crate) async fn try_pyth_simulated_liquidation<
                     )
                     .await;
 
+                    let pyth_price_data = match decode_pyth_update_b64(&p.1) {
+                        Ok(data) => data,
+                        Err(e) => {
+                            error!(?borrower, "Failed to decode Pyth price data: {e}");
+                            return;
+                        }
+                    };
+
                     update_pyth_price_then_liquidate_no_wait(
                         ctx.clone(),
                         ctx.helpers[0].clone(),
@@ -210,13 +218,7 @@ pub(crate) async fn try_pyth_simulated_liquidation<
                         debt_token,
                         collateral_token,
                         swap_data,
-                        vec![p.1.clone()]
-                            .into_iter()
-                            .map(|b| {
-                                let hex_bytes = alloy::hex::decode(b).expect("Invalid hex string");
-                                Bytes::copy_from_slice(&hex_bytes)
-                            })
-                            .collect::<Vec<_>>(),
+                        vec![pyth_price_data],
                     )
                     .await;
                 }

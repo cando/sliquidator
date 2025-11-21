@@ -3959,6 +3959,7 @@ name = "sliquidator"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "base64",
  "chrono",
  "clap",
  "clap_derive",

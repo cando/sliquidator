@@ -53,3 +53,5 @@ once_cell = "1.21.3"
 
 # Internal crates
 common = { path = "common" }
+
+base64 = "0.22.1"
