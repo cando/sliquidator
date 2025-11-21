@@ -309,19 +309,24 @@ async fn attempt_multiple_liquidations<
     )
     .await;
 
-    for helper in ctx.helpers.iter() {
-        liquidate_no_wait(
-            ctx.clone(),
-            helper.clone(),
-            borrower,
-            debt_token,
-            collateral_token,
-            Some(max_debt_to_cover),
-            swap_data.clone(),
-            LiquidationType::Standard,
-            false,
-        )
-        .await;
+    for helper in ctx.helpers.iter().cloned() {
+        let ctx_ = ctx.clone();
+        let swap = swap_data.clone();
+
+        tokio::spawn(async move {
+            liquidate_no_wait(
+                ctx_,
+                helper,
+                borrower,
+                debt_token,
+                collateral_token,
+                Some(max_debt_to_cover),
+                swap,
+                LiquidationType::Standard,
+                false,
+            )
+            .await
+        });
     }
 
     // Remove the borrower from the watchlist after attempting liquidations
