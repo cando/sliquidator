@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use alloy::{
     consensus::Transaction,
-    primitives::{aliases::I192, Address, FixedBytes, Selector, Signed, U256},
+    primitives::{address, aliases::I192, Address, FixedBytes, Selector, Signed, U256},
     providers::Provider,
     rpc::types::state::StateOverridesBuilder,
     sol,
@@ -57,6 +57,10 @@ pub struct ChainLinkPriceData {
 
 pub type SharedChainlinkPrice = Arc<RwLock<Option<ChainLinkPriceData>>>;
 
+const MEV_1: Address = address!("0xbad0000000000000000000000000000000000001");
+const MEV_2: Address = address!("0xbad0000000000000000000000000000000000002");
+const MEV_3: Address = address!("0xbad0000000000000000000000000000000000003");
+
 pub async fn chainlink_forward_listener_task<P>(
     provider: P,
     shared_price: SharedChainlinkPrice,
@@ -76,6 +80,8 @@ pub async fn chainlink_forward_listener_task<P>(
         111, 173, 207, 114, // forward function selector
     ]);
 
+    let mev_function_selector: Selector = FixedBytes::from_slice(&[255, 77, 225, 2]);
+
     let mut stream = sub.into_stream();
 
     info!("Awaiting pending Chainlink Forward transactions on {chainlink_aggregator_address}...");
@@ -84,6 +90,19 @@ pub async fn chainlink_forward_listener_task<P>(
         if let Ok(Some(_tx)) = provider.get_transaction_by_hash(tx_hash).await {
             let tx = _tx.into_inner();
             debug!("Pending transaction detected: {:?}", &tx.hash());
+
+            if tx.to() == Some(MEV_1)
+                || tx.to() == Some(MEV_2)
+                || (tx.to() == Some(MEV_3)
+                    && tx.function_selector() != Some(&mev_function_selector))
+            {
+                info!(
+                    "Known MEV bot transaction, to {:?} : {:?}",
+                    &tx.to(),
+                    &tx.hash()
+                );
+            }
+
             // forwarder address
             if tx.function_selector() == Some(&chainlink_forward_function_selector) {
                 match forwardCall::abi_decode(&tx.input()) {
