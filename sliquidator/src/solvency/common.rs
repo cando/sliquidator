@@ -5,6 +5,7 @@ use alloy::{
     rpc::types::TransactionRequest,
     sol_types::SolCall,
 };
+use tokio::task::JoinSet;
 use tracing::{error, info};
 
 use crate::{
@@ -96,19 +97,18 @@ pub(crate) async fn liquidate_no_wait<
 
     let tx_envelope = tx.build(&helper.signer).await.unwrap();
 
-    let mut tasks = Vec::new();
+    let mut set = JoinSet::new();
 
     for p in &helper.endpoints {
         let p = p.clone();
-        let tx_envelope = tx_envelope.clone();
-        tasks.push(tokio::spawn(async move {
-            p.send_tx_envelope(tx_envelope).await
-        }));
+        let tx = tx_envelope.clone();
+        set.spawn(async move {
+            // Result<PendingTransaction, E>
+            p.send_tx_envelope(tx).await
+        });
     }
 
-    let results = futures::future::join_all(tasks).await;
-
-    for liquidation_call in results {
+    while let Some(liquidation_call) = set.join_next().await {
         match liquidation_call {
             Ok(Ok(pending_tx)) => {
                 let hash = *pending_tx.tx_hash();
