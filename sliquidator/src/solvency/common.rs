@@ -70,11 +70,29 @@ pub(crate) async fn liquidate_no_wait<
         }
     };
 
+    let nonce = match ctx.provider.get_transaction_count(helper.address()).await {
+        Ok(nonce) => nonce,
+        Err(e) => {
+            error!(?borrower, "Failed to fetch nonce: {e}");
+            return;
+        }
+    };
+
+    let gas = match ctx.provider.get_gas_price().await {
+        Ok(gas) => gas,
+        Err(e) => {
+            error!(?borrower, "Failed to estimate gas: {e}");
+            return;
+        }
+    };
+
     let tx = TransactionRequest::default()
         .with_from(helper.address())
         .with_to(LIQUIDATOR_ADDRESS)
+        .with_nonce(nonce)
         .with_input(liquidation_call)
-        .with_gas_limit(5_000_000u64);
+        .with_gas_limit(5_000_000u64)
+        .with_gas_price(gas);
 
     let tx_envelope = tx.build(&helper.signer).await.unwrap();
 
