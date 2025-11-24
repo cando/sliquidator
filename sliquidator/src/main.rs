@@ -4,7 +4,7 @@ mod solvency;
 mod types;
 mod utils;
 
-use crate::config::{load_app_config, AppConfig, SiloConfig, LIQUIDATOR_ADDRESS};
+use crate::config::{load_app_config, AppConfig, SiloConfig, LIQUIDATOR_ADDRESS, SONIC_MULTICALL3};
 use crate::solvency::run_solvency_monitor;
 
 use crate::types::ILiquidationHelper::ILiquidationHelperInstance;
@@ -12,13 +12,12 @@ use crate::types::ISiloLens::ISiloLensInstance;
 use crate::types::{EoaFanout, ILiquidationHelper, ISiloLens};
 use crate::utils::read_private_key_from_file;
 
-use alloy::network::EthereumWallet;
-use alloy::primitives::address;
+use alloy::primitives::{address, U256};
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::signers::local::PrivateKeySigner;
 
-use alloy::signers::Signer;
 use clap::Parser;
+use common::soldiers::soldier_manager::SoldierManager;
 use eyre::{eyre, Result};
 use futures::future::join_all;
 use tokio::task::JoinHandle;
@@ -37,11 +36,6 @@ struct CliArgs {
     /// Private key file for the base IPC provider (used for lens / maintenance ops)
     #[arg(long, value_name = "FILE")]
     base_key_file: String,
-
-    /// Repeatable: EOA private key files used to sign liquidations (fan-out to all endpoints)
-    /// Example: --eoa-key /secrets/alice.key --eoa-key /secrets/bob.key
-    #[arg(long, value_name = "FILE", num_args = 0.., action = clap::ArgAction::Append)]
-    eoa_key: Vec<String>,
 
     /// Repeatable: RPC/WebSocket endpoints used for broadcasting (no wallets attached)
     /// Example: --endpoint http://localhost:8545 --endpoint https://rpc-x
@@ -63,6 +57,23 @@ struct CliArgs {
     /// Optional: RPC endpoint to use for withdrawn tokens (overrides base IPC)
     #[arg(long)]
     withdrawn_rpc: Option<String>,
+
+    // >>> Soldier manager CLI
+    /// Optional: BIP-39 mnemonic file for soldier EOAs (one seed -> many soldiers)
+    #[arg(long, value_name = "FILE")]
+    soldier_mnemonic_file: Option<String>,
+
+    /// Number of soldiers to derive (m/44'/60'/0'/0/i)
+    #[arg(long, default_value = "0")]
+    soldiers: u32,
+
+    /// Top-up if balance < min_wei (default: 0)
+    #[arg(long, default_value = "0")]
+    soldier_min_wei: u128,
+
+    /// When topping up, send to reach this target balance in wei (default: 0)
+    #[arg(long, default_value = "0")]
+    soldier_target_wei: u128,
 }
 
 #[tokio::main]
@@ -146,37 +157,55 @@ async fn main() -> Result<()> {
         broadcast_endpoints.push(p);
     }
 
-    // ---------- EOAs (signers) ----------
-    if args.eoa_key.is_empty() {
-        info!("No --eoa-key provided. Liquidations will be sent using ONLY the base key.");
-    }
+    // ---------- EOA Soldiers (derived from mnemonic; optional) ----------
 
-    // Build fanouts: one signer per EOA key; each has ALL endpoints
     let mut eoa_fanouts = Vec::new();
 
-    if args.eoa_key.is_empty() {
-        // Use base signer as a single EOA bundle
-        eoa_fanouts.push(EoaFanout {
-            signer: EthereumWallet::from(base_signer.clone().with_chain_id(Some(chain_id))),
-            endpoints: broadcast_endpoints.clone(),
-        });
-        info!(
-            "EOA fanout: using base key only (address: {:?})",
-            base_signer.address()
-        );
-    } else {
-        for key_path in &args.eoa_key {
-            let pk = read_private_key_from_file(key_path)?;
-            let signer = pk
-                .parse::<PrivateKeySigner>()?
-                .with_chain_id(Some(chain_id));
-            info!("EOA loaded: {} (addr: {:?})", key_path, signer.address());
+    if args.soldiers > 0 {
+        let mnemonic_file = args
+            .soldier_mnemonic_file
+            .as_ref()
+            .expect("--soldiers > 0 requires --soldier-mnemonic-file <FILE>");
 
+        // Automatically loads or generates a mnemonic
+        let mgr = SoldierManager::from_mnemonic_file(
+            base_provider.clone(),
+            base_signer.clone(),
+            chain_id,
+            mnemonic_file,
+            SONIC_MULTICALL3,
+        )?;
+
+        let min = U256::from(args.soldier_min_wei);
+        let target = U256::from(args.soldier_target_wei);
+        if target < min {
+            return Err(eyre!("soldier_target_wei must be >= soldier_min_wei"));
+        }
+
+        // 1) bootstrap soldiers (top-up if needed)
+        let soldier_wallets = mgr.bootstrap_soldiers(args.soldiers, min, target).await?;
+
+        // 2) attach to fanouts
+        for w in soldier_wallets {
+            info!("Soldier ready: {:?}", w.default_signer().address());
             eoa_fanouts.push(EoaFanout {
-                signer: EthereumWallet::from(signer),
+                signer: w,
                 endpoints: broadcast_endpoints.clone(),
             });
         }
+
+        // 3) launch periodic refunder every 2h
+        let periodic_mgr = mgr.clone();
+        tokio::spawn(async move {
+            periodic_mgr
+                .run_periodic_funding_task(
+                    args.soldiers,
+                    min,
+                    target,
+                    std::time::Duration::from_secs(7200),
+                )
+                .await;
+        });
     }
 
     // ---------- config & contracts (read path uses base provider) ----------

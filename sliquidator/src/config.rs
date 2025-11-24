@@ -1,6 +1,7 @@
 use alloy::primitives::{address, Address, FixedBytes};
 use serde::Deserialize;
 
+pub const SONIC_MULTICALL3: Address = address!("cA11bde05977b3631167028862bE2a173976CA11");
 pub const LIQUIDATOR_ADDRESS: Address = address!("dead000000000000000000000000000000000009");
 
 #[derive(Debug, Clone, Deserialize)]
