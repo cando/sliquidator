@@ -168,7 +168,6 @@ async fn try_direct_same_token_liquidation<
         borrower,
         token,
         token, // no swap
-        Some(max_debt),
         Bytes::new(),
         LiquidationType::Standard,
         true,
@@ -205,7 +204,6 @@ async fn attempt_multiple_liquidations<
             borrower,
             token,
             token,
-            None,
             Bytes::new(),
             LiquidationType::Blind,
             false,

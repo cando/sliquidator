@@ -6,12 +6,18 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@pythnetwork/pyth-sdk-solidity/IPyth.sol";
 import "@pythnetwork/pyth-sdk-solidity/PythStructs.sol";
-import {IERC3156FlashBorrower} from "@silo-core/interfaces/IERC3156FlashBorrower.sol";
-import {IPartialLiquidation} from "@silo-core/interfaces/IPartialLiquidation.sol";
+import {
+    IERC3156FlashBorrower
+} from "@silo-core/interfaces/IERC3156FlashBorrower.sol";
+import {
+    IPartialLiquidation
+} from "@silo-core/interfaces/IPartialLiquidation.sol";
 import {ISilo} from "@silo-core/interfaces/ISilo.sol";
 import {IHookReceiver} from "@silo-core/interfaces/IHookReceiver.sol";
 import {ILiquidationHelper} from "@silo-core/interfaces/ILiquidationHelper.sol";
-import {IWrappedNativeToken} from "@silo-core/interfaces/IWrappedNativeToken.sol";
+import {
+    IWrappedNativeToken
+} from "@silo-core/interfaces/IWrappedNativeToken.sol";
 
 contract LiquidationHelper is IERC3156FlashBorrower {
     using Address for address payable;
@@ -87,10 +93,12 @@ contract LiquidationHelper is IERC3156FlashBorrower {
     function executeLiquidation(
         ISilo _flashLoanFrom,
         address _debtAsset,
-        uint256 _maxDebtToCover,
         ILiquidationHelper.LiquidationData calldata _liquidation,
         bytes calldata _swapsInputs
     ) external {
+        (, uint256 _maxDebtToCover, ) = silo_hook.maxLiquidation(
+            _liquidation.user
+        );
         require(_maxDebtToCover != 0, NoDebtToCover());
 
         _flashLoanFrom.flashLoan(
@@ -131,8 +139,9 @@ contract LiquidationHelper is IERC3156FlashBorrower {
         bytes calldata _swapsInputs,
         bytes[] calldata priceUpdate
     ) external {
-        uint fee = PYTH_AGGREGATOR.getUpdateFee(priceUpdate);
-        PYTH_AGGREGATOR.updatePriceFeeds{value: fee}(priceUpdate);
+        // uint fee = PYTH_AGGREGATOR.getUpdateFee(priceUpdate);
+        // we can optimize: pyth update fee is always 1 gwei (empirically observed)
+        PYTH_AGGREGATOR.updatePriceFeeds{value: 1}(priceUpdate);
 
         executeLiquidationBlind(
             _flashLoanFrom,

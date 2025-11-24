@@ -129,7 +129,6 @@ async fn try_chainlink_simulated_liquidation<
                     borrower,
                     debt_token,
                     collateral_token,
-                    max_debt,
                     collateral_to_liquidate,
                 )
                 .await;
@@ -275,7 +274,6 @@ async fn try_direct_liquidation<
         borrower,
         debt_token,
         collateral_token,
-        Some(max_debt),
         swap_data,
         LiquidationType::Standard,
         true,
@@ -298,7 +296,6 @@ async fn attempt_multiple_liquidations<
     borrower: Address,
     debt_token: Address,
     collateral_token: Address,
-    max_debt_to_cover: U256,
     collateral_to_liquidate: U256,
 ) {
     let swap_data = get_swap_data(
@@ -320,7 +317,6 @@ async fn attempt_multiple_liquidations<
                 borrower,
                 debt_token,
                 collateral_token,
-                Some(max_debt_to_cover),
                 swap,
                 LiquidationType::Standard,
                 false,
@@ -357,7 +353,6 @@ pub(crate) async fn update_pyth_price_then_liquidate_no_wait<
         borrower,
         debt_token,
         collateral_token,
-        None,
         swap_data.clone(),
         LiquidationType::Pyth(price_data),
         false,

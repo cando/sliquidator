@@ -152,7 +152,6 @@ sol! {
         function executeLiquidation(
             address silo,
             address debtAsset,
-            uint256 maxDebtToCover,
             LiquidationData liquidation,
             bytes swapData
         ) returns (

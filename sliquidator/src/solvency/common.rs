@@ -1,6 +1,6 @@
 use alloy::{
     network::TransactionBuilder,
-    primitives::{Address, Bytes, U256},
+    primitives::{Address, Bytes},
     providers::{PendingTransactionBuilder, PendingTransactionConfig, Provider},
     rpc::types::TransactionRequest,
     sol_types::SolCall,
@@ -25,7 +25,6 @@ pub(crate) async fn liquidate_no_wait<
     borrower: Address,
     debt_token: Address,
     collateral_token: Address,
-    max_debt: Option<U256>,
     swap_data: Bytes,
     liquidation_type: LiquidationType,
     listen_to_receipt: bool,
@@ -33,7 +32,6 @@ pub(crate) async fn liquidate_no_wait<
     let liquidation_call = match liquidation_type {
         LiquidationType::Standard => crate::types::ILiquidationHelper::executeLiquidationCall {
             debtAsset: debt_token,
-            maxDebtToCover: max_debt.expect("max_debt must be provided for Standard liquidation"),
             liquidation: LiquidationData {
                 hook: ctx.config.hook_address,
                 collateralAsset: collateral_token,
