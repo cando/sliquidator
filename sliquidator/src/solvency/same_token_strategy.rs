@@ -120,7 +120,7 @@ async fn try_ltv_projection_liquidation<
             "🚨 Simulated LTV exceeds threshold → executing proactive liquidations"
         );
 
-        attempt_multiple_liquidations(ctx, borrower, token).await;
+        attempt_projected_liquidations(ctx, borrower, token).await;
     } else {
         debug!(
             %borrower,
@@ -182,7 +182,7 @@ async fn try_direct_same_token_liquidation<
         .retain(|(w, _, _)| *w != borrower);
 }
 
-async fn attempt_multiple_liquidations<
+async fn attempt_projected_liquidations<
     PWatch: Provider + Clone + 'static,
     PSend: Provider + Clone + 'static,
 >(

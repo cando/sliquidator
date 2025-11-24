@@ -46,6 +46,7 @@ impl<P: Provider + Clone + 'static> EoaFanout<P> {
     }
 }
 
+#[derive(Clone, Debug)]
 pub enum LiquidationType {
     Standard,
     Blind,

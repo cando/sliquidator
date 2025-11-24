@@ -16,6 +16,38 @@ use crate::{
 pub(crate) const MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX: usize = 0;
 pub(crate) const MIN_AMOUNT_FOR_LIQUIDATION_SIMULATED_STRATEGY_INDEX: usize = 1;
 
+pub(crate) async fn liquidate_no_wait_spam<
+    PWatch: Provider + Clone + 'static,
+    PSend: Provider + Clone + 'static,
+>(
+    ctx: &LiquidationContext<PWatch, PSend>,
+    borrower: Address,
+    debt_token: Address,
+    collateral_token: Address,
+    swap_data: Bytes,
+    liquidation_type: LiquidationType,
+) {
+    for helper in ctx.helpers.iter().cloned() {
+        let ctx_ = ctx.clone();
+        let swap = swap_data.clone();
+        let liquidation_type = liquidation_type.clone();
+
+        tokio::spawn(async move {
+            liquidate_no_wait(
+                ctx_,
+                helper,
+                borrower,
+                debt_token,
+                collateral_token,
+                swap,
+                liquidation_type,
+                false,
+            )
+            .await
+        });
+    }
+}
+
 pub(crate) async fn liquidate_no_wait<
     PWatch: Provider + Clone + 'static,
     PSend: Provider + Clone + 'static,

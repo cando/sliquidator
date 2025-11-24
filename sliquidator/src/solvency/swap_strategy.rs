@@ -16,12 +16,11 @@ use crate::{
         simulator::{chainlink_is_borrower_solvent_simulated, pyth_is_borrower_solvent_simulated},
     },
     solvency::common::{
-        liquidate_no_wait, MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
+        liquidate_no_wait, liquidate_no_wait_spam, MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
         MIN_AMOUNT_FOR_LIQUIDATION_SIMULATED_STRATEGY_INDEX,
     },
     types::{
-        EoaFanout, IHookReceiver::maxLiquidationReturn, LiquidationContext, LiquidationType,
-        OraclePriceData,
+        IHookReceiver::maxLiquidationReturn, LiquidationContext, LiquidationType, OraclePriceData,
     },
 };
 
@@ -29,7 +28,7 @@ pub(crate) async fn swap_solvency<
     PWatch: Provider + Clone + 'static,
     PSend: Provider + Clone + 'static,
 >(
-    ctx: LiquidationContext<PWatch, PSend>,
+    ctx: &LiquidationContext<PWatch, PSend>,
     borrower: Address,
     debt_token: Address,
     collateral_token: Address,
@@ -72,7 +71,7 @@ pub(crate) async fn swap_solvency<
                 ..
             } => {
                 try_pyth_simulated_liquidation(
-                    ctx.clone(),
+                    ctx,
                     debt_token,
                     collateral_token,
                     &price_feed,
@@ -124,14 +123,30 @@ async fn try_chainlink_simulated_liquidation<
                 info!(?borrower, max_debt = %max_debt, next_price = %price_data.price,
                       "🚨 Simulated insolvency above threshold. Attempting proactive liquidation.");
 
-                attempt_multiple_liquidations(
+                let swap_data = get_swap_data(
+                    ctx.config.swap_pool_tick_spacing,
+                    collateral_token,
+                    debt_token,
+                    collateral_to_liquidate,
+                )
+                .await;
+
+                liquidate_no_wait_spam(
                     ctx,
                     borrower,
                     debt_token,
                     collateral_token,
-                    collateral_to_liquidate,
+                    swap_data,
+                    LiquidationType::Standard,
                 )
                 .await;
+
+                // Remove the borrower from the watchlist after attempting liquidations
+                // in order to avoid repeated attempts
+                ctx.watchlist
+                    .write()
+                    .await
+                    .retain(|(w, _, _)| *w != borrower);
             } else {
                 info!(?borrower, max_debt = %max_debt, min_threshold = ?min_threshold, "Simulated insolvency but below threshold. Skipping.");
                 ctx.watchlist
@@ -151,7 +166,7 @@ pub(crate) async fn try_pyth_simulated_liquidation<
     PWatch: Provider + Clone + 'static,
     PSend: Provider + Clone + 'static,
 >(
-    ctx: LiquidationContext<PWatch, PSend>,
+    ctx: &LiquidationContext<PWatch, PSend>,
     debt_token: Address,
     collateral_token: Address,
     price_feed: &SharedPythPrice,
@@ -211,8 +226,7 @@ pub(crate) async fn try_pyth_simulated_liquidation<
                     };
 
                     update_pyth_price_then_liquidate_no_wait(
-                        ctx.clone(),
-                        ctx.helpers[0].clone(),
+                        ctx,
                         borrower,
                         debt_token,
                         collateral_token,
@@ -288,57 +302,11 @@ async fn try_direct_liquidation<
         .retain(|(w, _, _)| *w != borrower);
 }
 
-async fn attempt_multiple_liquidations<
-    PWatch: Provider + Clone + 'static,
-    PSend: Provider + Clone + 'static,
->(
-    ctx: &LiquidationContext<PWatch, PSend>,
-    borrower: Address,
-    debt_token: Address,
-    collateral_token: Address,
-    collateral_to_liquidate: U256,
-) {
-    let swap_data = get_swap_data(
-        ctx.config.swap_pool_tick_spacing,
-        collateral_token,
-        debt_token,
-        collateral_to_liquidate,
-    )
-    .await;
-
-    for helper in ctx.helpers.iter().cloned() {
-        let ctx_ = ctx.clone();
-        let swap = swap_data.clone();
-
-        tokio::spawn(async move {
-            liquidate_no_wait(
-                ctx_,
-                helper,
-                borrower,
-                debt_token,
-                collateral_token,
-                swap,
-                LiquidationType::Standard,
-                false,
-            )
-            .await
-        });
-    }
-
-    // Remove the borrower from the watchlist after attempting liquidations
-    // in order to avoid repeated attempts
-    ctx.watchlist
-        .write()
-        .await
-        .retain(|(w, _, _)| *w != borrower);
-}
-
 pub(crate) async fn update_pyth_price_then_liquidate_no_wait<
     PWatch: Provider + Clone + 'static,
     PSend: Provider + Clone + 'static,
 >(
-    ctx: LiquidationContext<PWatch, PSend>,
-    helper: EoaFanout<PSend>,
+    ctx: &LiquidationContext<PWatch, PSend>,
     borrower: Address,
     debt_token: Address,
     collateral_token: Address,
@@ -347,15 +315,13 @@ pub(crate) async fn update_pyth_price_then_liquidate_no_wait<
 ) {
     info!(collateral_token = ?collateral_token, debt_token = ?debt_token, ?borrower, "🚀 Sending Pyth liquidation tx...");
 
-    liquidate_no_wait(
-        ctx.clone(),
-        helper.clone(),
+    liquidate_no_wait_spam(
+        ctx,
         borrower,
         debt_token,
         collateral_token,
-        swap_data.clone(),
+        swap_data,
         LiquidationType::Pyth(price_data),
-        false,
     )
     .await;
 
