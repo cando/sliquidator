@@ -1,7 +1,7 @@
 use alloy::primitives::{address, Address, FixedBytes};
 use serde::Deserialize;
 
-pub const LIQUIDATOR_ADDRESS: Address = address!("dead000000000000000000000000000000000008");
+pub const LIQUIDATOR_ADDRESS: Address = address!("dead000000000000000000000000000000000009");
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
