@@ -32,7 +32,7 @@ use tracing_subscriber::EnvFilter;
 struct CliArgs {
     /// Base IPC path for the primary (read/observe) provider (e.g., ~/.sonic/sonic.ipc)
     #[arg(long)]
-    base_ipc: String,
+    base_ipc: Option<String>,
 
     /// Private key file for the base IPC provider (used for lens / maintenance ops)
     #[arg(long, value_name = "FILE")]
@@ -59,6 +59,10 @@ struct CliArgs {
     /// Optional: withdraw a token using the base provider/key
     #[arg(long, value_name = "ADDRESS")]
     withdraw_token: Option<String>,
+
+    /// Optional: RPC endpoint to use for withdrawn tokens (overrides base IPC)
+    #[arg(long)]
+    withdrawn_rpc: Option<String>,
 }
 
 #[tokio::main]
@@ -91,16 +95,37 @@ async fn main() -> Result<()> {
     let base_pk = read_private_key_from_file(&args.base_key_file)?;
     let base_signer = base_pk.parse::<PrivateKeySigner>()?;
 
+    // For withdraws, keep it simple: use base provider/key
+    // E.g. cargo run --bin sliquidator -r -- --withdrawn-rpc https://rpc.soniclabs.com --log-console --withdraw-token 0x79bbF4508B1391af3A0F4B30bb5FC4aa9ab0E07C --base-key
+    // -file base_key
+    if let Some(withdraw_token) = args.withdraw_token.clone() {
+        if let Some(rpc_endpoint) = args.withdrawn_rpc.clone() {
+            let withdraw_provider = ProviderBuilder::new()
+                .wallet(base_signer.clone())
+                .with_simple_nonce_management()
+                .connect(&rpc_endpoint)
+                .await
+                .map_err(|e| eyre!("Failed to connect withdrawn RPC provider: {e}"))?;
+
+            let base_helper =
+                ILiquidationHelper::new(LIQUIDATOR_ADDRESS, withdraw_provider.clone());
+            return handle_withdraw(base_helper, withdraw_token).await;
+        }
+    }
+
+    let base_ipc = &args
+        .base_ipc
+        .expect("You must provide --base-ipc for normal operation.");
     let base_provider = ProviderBuilder::new()
         .wallet(base_signer.clone())
         .with_simple_nonce_management()
-        .connect(&args.base_ipc)
+        .connect(base_ipc)
         .await
         .map_err(|e| eyre!("Failed to connect base IPC provider: {e}"))?;
 
     let chain_id = base_provider.get_chain_id().await?;
 
-    info!("Base provider (IPC) connected at {}", &args.base_ipc);
+    info!("Base provider (IPC) connected at {}", base_ipc);
 
     // ---------- broadcast endpoints (NO wallet attached) ----------
     if args.endpoint.is_empty() {
@@ -161,12 +186,6 @@ async fn main() -> Result<()> {
         address!("925d5466d4d5b01995e20e1245924ada6415126a"),
         base_provider.clone(), // read/watch on base IPC
     );
-
-    // For withdraws, keep it simple: use base provider/key
-    if let Some(withdraw_token) = args.withdraw_token.clone() {
-        let base_helper = ILiquidationHelper::new(LIQUIDATOR_ADDRESS, base_provider.clone());
-        return handle_withdraw(base_helper, withdraw_token).await;
-    }
 
     // ---------- run per-silo tasks ----------
     let mut handles = vec![];

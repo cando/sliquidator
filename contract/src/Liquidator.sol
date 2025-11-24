@@ -96,7 +96,7 @@ contract LiquidationHelper is IERC3156FlashBorrower {
         ILiquidationHelper.LiquidationData calldata _liquidation,
         bytes calldata _swapsInputs
     ) external {
-        (, uint256 _maxDebtToCover, ) = silo_hook.maxLiquidation(
+        (, uint256 _maxDebtToCover, ) = _liquidation.hook.maxLiquidation(
             _liquidation.user
         );
         require(_maxDebtToCover != 0, NoDebtToCover());
@@ -140,7 +140,7 @@ contract LiquidationHelper is IERC3156FlashBorrower {
         bytes[] calldata priceUpdate
     ) external {
         // uint fee = PYTH_AGGREGATOR.getUpdateFee(priceUpdate);
-        // we can optimize: pyth update fee is always 1 gwei (empirically observed)
+        // we can optimize: pyth update fee is always 1 wei (empirically observed)
         PYTH_AGGREGATOR.updatePriceFeeds{value: 1}(priceUpdate);
 
         executeLiquidationBlind(
