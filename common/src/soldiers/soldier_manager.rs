@@ -303,7 +303,7 @@ where
             }
 
             if let Err(e) = self.fund_batch(needed).await {
-                warn!("Periodic funding multicall failed: {e}");
+                error!("Periodic funding multicall failed: {e}");
             } else {
                 info!("Periodic soldier funding round completed.");
             }
