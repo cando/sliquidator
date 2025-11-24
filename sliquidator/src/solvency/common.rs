@@ -90,7 +90,7 @@ pub(crate) async fn liquidate_no_wait<
         .with_to(LIQUIDATOR_ADDRESS)
         .with_nonce(nonce)
         .with_input(liquidation_call)
-        .with_gas_limit(5_000_000u64)
+        .with_gas_limit(2_500_000u64)
         .with_gas_price(gas);
 
     let tx_envelope = tx.build(&helper.signer).await.unwrap();
