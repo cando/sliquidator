@@ -17,7 +17,7 @@ pub(crate) async fn same_token_solvency<
     PWatch: Provider + Clone + 'static,
     PSend: Provider + Clone + 'static,
 >(
-    ctx: LiquidationContext<PWatch, PSend>,
+    ctx: &LiquidationContext<PWatch, PSend>,
     borrower: Address,
     debt_token: Address,
 ) {

@@ -331,9 +331,9 @@ async fn solvency_monitor_task<
             }
 
             if collateral_token == debt_token {
-                same_token_solvency(ctx.clone(), borrower, debt_token).await;
+                same_token_solvency(&ctx, borrower, debt_token).await;
             } else {
-                swap_solvency(ctx.clone(), borrower, debt_token, collateral_token).await;
+                swap_solvency(&ctx, borrower, debt_token, collateral_token).await;
             }
         }
     }
