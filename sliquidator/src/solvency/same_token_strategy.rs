@@ -1,11 +1,9 @@
-use std::time::Duration;
-
 use alloy::{
     eips::{BlockId, BlockNumberOrTag},
     primitives::{Address, Bytes, U256},
     providers::Provider,
 };
-use tokio::time::sleep;
+use futures::StreamExt;
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -120,7 +118,8 @@ async fn try_ltv_projection_liquidation<
             "🚨 Simulated LTV exceeds threshold → executing proactive liquidations"
         );
 
-        attempt_projected_liquidations(ctx, borrower, token).await;
+        spawn_attempt_projected_liquidations(ctx.clone(), borrower, token, n_blocks_to_check + 1)
+            .await;
     } else {
         debug!(
             %borrower,
@@ -182,22 +181,63 @@ async fn try_direct_same_token_liquidation<
         .retain(|(w, _, _)| *w != borrower);
 }
 
-async fn attempt_projected_liquidations<
-    PWatch: Provider + Clone + 'static,
-    PSend: Provider + Clone + 'static,
+async fn spawn_attempt_projected_liquidations<
+    PWatch: Provider + Clone + Send + Sync + 'static,
+    PSend: Provider + Clone + Send + Sync + 'static,
 >(
-    ctx: &LiquidationContext<PWatch, PSend>,
+    ctx: LiquidationContext<PWatch, PSend>,
     borrower: Address,
     token: Address,
+    num_blocks_to_watch: usize,
+) -> tokio::task::JoinHandle<()> {
+    // Remove the borrower from the watchlist after attempting liquidations
+    ctx.watchlist
+        .write()
+        .await
+        .retain(|(w, _, _)| *w != borrower);
+
+    tokio::spawn(async move {
+        attempt_projected_liquidations_inner(ctx, borrower, token, num_blocks_to_watch).await;
+    })
+}
+
+async fn attempt_projected_liquidations_inner<
+    PWatch: Provider + Clone + Send + Sync + 'static,
+    PSend: Provider + Clone + Send + Sync + 'static,
+>(
+    ctx: LiquidationContext<PWatch, PSend>,
+    borrower: Address,
+    token: Address,
+    num_blocks_to_watch: usize,
 ) {
-    let num_helpers = ctx.helpers.len();
+    let mut block_stream = match ctx.provider.watch_blocks().await {
+        Ok(stream) => stream.into_stream(),
+        Err(err) => {
+            error!("failed to watch blocks for projected liquidations: {err:?}");
+            return;
+        }
+    };
 
-    // current block time in sonic is around 500-600ms.
-    // so trying 5 times with 500ms sleep it measn we cover ~ 3 seconds, which is more than
-    // the 5 blocks with simulated LTV
-    for i in 0..5 {
-        let helper = ctx.helpers[i % num_helpers].clone();
+    let mut attempt = 0usize;
 
+    while attempt < num_blocks_to_watch {
+        let maybe_block = block_stream.next().await;
+        if maybe_block.is_none() {
+            // Stream ended or errored, bail out.
+            break;
+        }
+
+        if maybe_block.as_ref().unwrap().is_empty() {
+            // No new block, continue waiting.
+            continue;
+        }
+
+        info!(maybe_block = ?maybe_block, %attempt, "New block observed for projected liquidation attempt");
+
+        let helper = ctx.helpers[attempt % ctx.helpers.len()].clone();
+
+        // Immediately send a liquidation tx after the block is observed.
+        // This should give the tx maximum time in the mempool to land in the *next* block.
         liquidate_no_wait(
             ctx.clone(),
             helper,
@@ -206,17 +246,10 @@ async fn attempt_projected_liquidations<
             token,
             Bytes::new(),
             LiquidationType::Blind,
-            false,
+            true,
         )
         .await;
 
-        sleep(Duration::from_millis(400)).await;
+        attempt += 1;
     }
-
-    // Remove the borrower from the watchlist after attempting liquidations
-    // in order to avoid repeated attempts
-    ctx.watchlist
-        .write()
-        .await
-        .retain(|(w, _, _)| *w != borrower);
 }
