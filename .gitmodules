@@ -7,3 +7,6 @@
 [submodule "contract/lib/silo-contracts-v2"]
 	path = contract/lib/silo-contracts-v2
 	url = https://github.com/silo-finance/silo-contracts-v2
+[submodule "contract/lib/pyth-sdk-solidity"]
+	path = contract/lib/pyth-sdk-solidity
+	url = https://github.com/pyth-network/pyth-sdk-solidity
