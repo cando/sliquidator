@@ -24,3 +24,5 @@ storage_layout.json
 contract/node_modules/*
 contract/src/test.json
 **/tmp/*
+
+*.out
