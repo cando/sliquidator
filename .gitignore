@@ -26,3 +26,4 @@ contract/src/test.json
 **/tmp/*
 
 *.out
+misc/.~*#
