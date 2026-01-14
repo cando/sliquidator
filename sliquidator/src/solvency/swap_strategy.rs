@@ -16,7 +16,7 @@ use crate::{
         simulator::{chainlink_is_borrower_solvent_simulated, pyth_is_borrower_solvent_simulated},
     },
     solvency::common::{
-        liquidate_no_wait, liquidate_no_wait_spam, MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
+        liquidate_no_wait_spam, MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
         MIN_AMOUNT_FOR_LIQUIDATION_SIMULATED_STRATEGY_INDEX,
     },
     types::{
@@ -282,15 +282,13 @@ async fn try_direct_liquidation<
     )
     .await;
 
-    liquidate_no_wait(
-        ctx.clone(),
-        ctx.helpers[0].clone(),
+    liquidate_no_wait_spam(
+        ctx,
         borrower,
         debt_token,
         collateral_token,
         swap_data,
         LiquidationType::Standard,
-        true,
     )
     .await;
 
