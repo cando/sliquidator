@@ -7,7 +7,9 @@ use futures::StreamExt;
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    solvency::common::{liquidate_no_wait, MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX},
+    solvency::common::{
+        liquidate_no_wait, liquidate_no_wait_spam, MIN_AMOUNT_FOR_LIQUIDATION_BASE_STRATEGY_INDEX,
+    },
     types::{IHookReceiver::maxLiquidationReturn, LiquidationContext, LiquidationType},
 };
 
@@ -161,15 +163,13 @@ async fn try_direct_same_token_liquidation<
 
     info!(?borrower, max_debt = %max_debt, "🚨 Already insolvent → executing standard liquidation");
 
-    liquidate_no_wait(
-        ctx.clone(),
-        ctx.helpers[0].clone(),
+    liquidate_no_wait_spam(
+        ctx,
         borrower,
         token,
-        token, // no swap
+        token,
         Bytes::new(),
         LiquidationType::Standard,
-        true,
     )
     .await;
 
@@ -246,7 +246,8 @@ async fn attempt_projected_liquidations_inner<
             token,
             Bytes::new(),
             LiquidationType::Blind,
-            true,
+            // don't listen to receipt (and hence avoid blacklisting), allowing direct liquidation attempt to try again, if we fail  here
+            false,
         )
         .await;
 
