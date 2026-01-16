@@ -102,3 +102,19 @@ fn encode_priceinfo_slot0(publish_time: i64, expo: i32, price: i64, conf: u64) -
 
     slot0
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn priceinfo_slot_matches_solidity_packing() {
+        let slot = encode_priceinfo_slot0(1_700_000_000, -8, 150_000_000, 42);
+
+        assert_eq!(&slot[0..4], &[0, 0, 0, 0]);
+        assert_eq!(&slot[4..12], &42u64.to_be_bytes());
+        assert_eq!(&slot[12..20], &150_000_000i64.to_be_bytes());
+        assert_eq!(&slot[20..24], &(-8i32).to_be_bytes());
+        assert_eq!(&slot[24..32], &1_700_000_000i64.to_be_bytes());
+    }
+}

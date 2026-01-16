@@ -270,3 +270,17 @@ fn encode_transmission(price: I192) -> [u8; 32] {
 
     slot
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transmission_slot_holds_price_and_timestamps() {
+        let price = I192::try_from(1_234_567_890_i64).expect("price fits int192");
+        let slot = encode_transmission(price);
+
+        assert_eq!(&slot[0..4], &slot[4..8]);
+        assert_eq!(&slot[8..32], &price.to_be_bytes::<24>());
+    }
+}
