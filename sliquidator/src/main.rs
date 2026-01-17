@@ -22,7 +22,7 @@ use eyre::{eyre, Result};
 use futures::future::join_all;
 use tokio::task::JoinHandle;
 use tracing::level_filters::LevelFilter;
-use tracing::{error, info};
+use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 /// Sonic Silo Liquidator
