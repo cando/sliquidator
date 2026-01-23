@@ -53,12 +53,14 @@ spotted and prepared before the block that made it profitable landed.
 
 The other half of the story is gas. For a while I tried to outbid everyone with
 hand-rolled fee maths; the version that survived is simpler and faster: sign once,
-broadcast the same transaction to several endpoints, and let the node suggest the fee. I
-also stopped renting a remote host. The bot ran from my desktop for a while, then from a
-small mini PC sitting next to the blockchain node, with local IPC for reads and broadcast
-over the network. That last step cut more latency than any code change, and getting the
-last few milliseconds out forced me to actually understand the low-level parts of Rust
-and `alloy`. It was a lot of fun, and the most useful Rust exercise I have done.
+broadcast the same transaction to several endpoints, and let the node suggest the fee. The
+bot started out running locally on a small mini PC on my desk at home, talking to the
+chain over the internet, and the network latency from home to the RPC node dominated the
+loop more than any code path. Moving execution to a VPC sitting close to the blockchain
+RPC node, and reading from a node in the same place, cut most of that latency in one move
+and improved things a lot. The milliseconds that were left are what forced me to actually
+understand the low-level parts of Rust and `alloy`. It was a lot of fun, and the most
+useful Rust exercise I have done.
 
 ## What it does
 
