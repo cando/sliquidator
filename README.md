@@ -222,17 +222,3 @@ cargo run --release --bin sliquidator -- \
 `silos.json` in the repository is a real, public market configuration and can be used as
 a reference for the shape of the file. Key files, mnemonic files, and `*.env` are
 gitignored and are never committed.
-
-## Known limits
-
-- The bot targets one chain per process and one JSON config per run.
-- The Redstone oracle path does basic liquidation only; there is no Redstone price
-  simulation.
-- Observability is structured logging to console or a rolling file. There is no metrics
-  endpoint.
-- The project is tuned for the Sonic deployment of Silo. Addresses are configuration, not
-  hard-coded strategy, but the swap and oracle paths assume its contracts.
-
----
-
-Built by [Stefano Candori](https://github.com/cando).
