@@ -1,6 +1,6 @@
 # sliquidator
 
-> A small, fast liquidation bot for Silo markets, written in Rust with a purpose-built Solidity helper.
+> A small, fast liquidation bot for Silo markets, written in Rust and Solidity.
 
 [![Rust](https://img.shields.io/badge/rust-2021-orange?logo=rust)](https://www.rust-lang.org/)
 [![Solidity](https://img.shields.io/badge/solidity-0.8.x-363636?logo=solidity)](https://soliditylang.org/)
