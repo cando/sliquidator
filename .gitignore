@@ -26,4 +26,11 @@ contract/src/test.json
 **/tmp/*
 
 *.out
-misc/.~*#
+
+# Local secrets and runtime state
+.env
+.env.*
+*.key
+base_key
+base_key_*
+soldier_mnemonic.txt
