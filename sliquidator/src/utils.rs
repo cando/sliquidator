@@ -38,3 +38,16 @@ pub fn percent_to_wei(percentage: f64) -> U256 {
 
     U256::from(scaled as u128)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn percent_to_wei_scales_to_eighteen_decimals() {
+        assert_eq!(percent_to_wei(0.0), U256::ZERO);
+        assert_eq!(percent_to_wei(1.0), U256::from(10_000_000_000_000_000u64));
+        assert_eq!(percent_to_wei(50.0), U256::from(500_000_000_000_000_000u64));
+        assert_eq!(percent_to_wei(100.0), U256::from(1_000_000_000_000_000_000u64));
+    }
+}
